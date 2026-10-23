@@ -1,0 +1,13 @@
+import type { ACLRule } from './access'
+import { registryRequest } from './registry'
+import { workspacePath, type WorkspacePage, type ResourcePattern } from './workspace'
+export interface AccountOperation { rules?:ACLRule[];results?:{rule?:ACLRule;state:string;code?:string}[]; status: string; revision: number; created_by: string; approved_by: string; executed_by: string; code?: string }
+export interface Account { id: string; username: string; principal: string; mechanism: string; source: string; credential_state: string; observation: string; revision: number; application_ids: string[]; operation?: AccountOperation }
+export interface AccountInput { request_id?:string; mode: 'create' | 'import' | 'reference'; application_id: string; username: string; password?: string; access_mode?:string; topics?:ResourcePattern[];group?:ResourcePattern }
+export const listAccounts = (id: string, page = 1, applicationId?:string) => registryRequest<WorkspacePage<Account>>(`${workspacePath(id)}/accounts?${new URLSearchParams({page:String(page),page_size:'20',...(applicationId?{application_id:applicationId}:{})})}`)
+export const hasAccountPassword = (account:Account) => !!account.id && ['managed','encrypted'].includes(account.credential_state)
+export const accountSource = (source:string) => ({create:'平台创建',import:'已录入',reference:'已关联',discovered:'Kafka 已有账号',legacy:'已有应用账号'}[source]??'未知来源')
+export const saveAccount = (id: string, input: AccountInput) => registryRequest<{ account: Account; operation?: AccountOperation }>(`${workspacePath(id)}/accounts`, 'POST', { request_id:input.request_id, mode: input.mode, application_id: input.application_id, username: input.username, ...(input.mode === 'import' ? { password: input.password } : {}),...(input.mode==='create'?{access_mode:input.access_mode,topics:input.topics,group:input.group}:{}) }, 35000)
+export const accountAction = (id: string, account: Account, action: 'approve' | 'execute') => registryRequest<{ account: Account; operation?: AccountOperation }>(`${workspacePath(id)}/accounts/${encodeURIComponent(account.id)}/${action}`, 'POST', { revision: account.revision }, 35000)
+export const revealAccount = (id: string, account: Account) => registryRequest<{ password: string }>(`${workspacePath(id)}/accounts/${encodeURIComponent(account.id)}/reveal`, 'POST', { revision: account.revision })
+export const accountState = (value: string) => ({ pending_approval: '等待审批', approved: '已批准，待创建', executing: '正在创建', executed: '账号已创建', ready: '已验证', partial_failure:'部分完成，请检查', review_required: '需要人工检查', verified: '密码验证通过', managed: '已保存密码', unmanaged: '未保存密码', encrypted: '已保存密码', unverified: '未验证', observed:'账号已存在', identity_only:'未验证密码', pending:'等待创建' })[value] ?? value

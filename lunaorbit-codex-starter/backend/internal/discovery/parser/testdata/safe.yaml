@@ -1,0 +1,7 @@
+clusters: [source, target]
+source.bootstrap.servers: broker.example.invalid:9092
+source->target.enabled: true
+source->target.topics: 'orders\..*,events.*'
+replication.policy.class: org.example.IdentityReplicationPolicy
+secret:
+  password: SYNTHETIC_IGNORED_VALUE

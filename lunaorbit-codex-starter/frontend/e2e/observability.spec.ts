@@ -1,0 +1,16 @@
+import {expect,test} from '@playwright/test'
+test('observations and candidate impact never upgrade discovery verification',async({page})=>{
+ await page.goto('/topology');await expect(page.locator('[data-discover]')).toBeEnabled();await page.locator('[data-discover]').click();await expect(page.locator('[data-link]')).toHaveCount(3)
+ const panel=page.getByRole('region',{name:'查询与潜在影响'})
+ await expect(panel.getByRole('table')).toContainText('mm2_lag_seconds');await expect(panel.getByRole('table')).toContainText('mock')
+ const before=await (await page.request.get('/api/v1/discovery/scopes/synthetic-mm2/snapshot?page_size=100')).json()
+ const input=before.snapshot.edges.find((e:{relation:string})=>e.relation==='declared_input')
+ const node=page.locator(`[data-cell-id="${input.source}"]`);const transform=await node.getAttribute('transform')
+ await panel.locator('[data-impact-node]').selectOption(input.source);await expect(panel).toContainText(input.target)
+ await expect(page.locator(`[data-cell-id="${input.target}"] rect`)).toHaveAttribute('stroke-width','4')
+ expect(await node.getAttribute('transform')).toBe(transform)
+ await panel.locator('input[name=business_topic]').fill('synthetic-events');await panel.locator('[data-explicit-confirm]').check();await panel.getByRole('button',{name:'记录人工业务确认'}).click();await expect(panel.locator('[data-confirmations]')).toContainText('业务人工确认')
+ const after=await (await page.request.get('/api/v1/discovery/scopes/synthetic-mm2/snapshot?page_size=100')).json();expect(after).toEqual(before)
+ await panel.getByLabel('指标 Mock 场景').selectOption('stale');await expect(panel).toContainText('已过期')
+ await panel.getByLabel('指标 Mock 场景').selectOption('no_data');await expect(panel.getByRole('table')).toContainText('未知')
+})

@@ -1,0 +1,6 @@
+{
+  "namespaces": [{"name": "synthetic-ns"}],
+  "configmaps": [{"name": "synthetic-name", "namespace": "synthetic-ns"}],
+  "deployments": [{"name": "synthetic-name", "namespace": "synthetic-ns"}],
+  "pods": [{"name": "synthetic-name", "namespace": "synthetic-ns"}]
+}

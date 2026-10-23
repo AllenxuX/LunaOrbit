@@ -1,0 +1,15 @@
+import {expect,test} from '@playwright/test'
+test('ACL page previews and submits typed requests without claiming authorizer validity',async({page})=>{
+ await page.goto('/kafka/clusters');await expect(page.getByRole('button',{name:'新增 Kafka 集群'})).toBeEnabled()
+ const created=await page.request.post('/api/v1/kafka/clusters',{data:{display_name:'Synthetic ACL E2E',bootstrap_servers:['broker.synthetic.test:9092'],enabled:true,security_protocol:'PLAINTEXT',sasl_mechanism:'',tls_server_name:''}});expect(created.status()).toBe(201);const cluster=await created.json()
+ await page.goto(`/kafka/clusters/${cluster.id}/security`);await expect(page.getByRole('table')).toContainText('User:synthetic-service')
+ await expect(page.locator('.security-view')).toContainText('待确认')
+ await page.locator('input[name=principal]').fill('User:synthetic-requester');await page.locator('input[name=resource_name]').fill('synthetic-events')
+ await page.getByRole('button',{name:'预览申请',exact:true}).click();await expect(page.locator('[data-preview]')).toContainText('尚未提交')
+ await page.locator('[data-submit-request]').click();await expect(page.locator('.security-view')).toContainText('pending_approval')
+ await expect(page.getByRole('button',{name:'独立审批'}).first()).toBeDisabled()
+ await page.locator('input[name=username]').fill('synthetic-user');await page.locator('input[name=password]').fill('synthetic-password')
+ await page.locator('[data-login]').getByRole('button',{name:'登录',exact:true}).click();await expect(page.locator('input[name=password]')).toHaveValue('')
+ await expect(page.getByRole('alert')).toContainText('尚未配置')
+ expect((await page.request.delete(`/api/v1/kafka/clusters/${cluster.id}`,{data:{revision:cluster.revision}})).status()).toBe(204)
+})

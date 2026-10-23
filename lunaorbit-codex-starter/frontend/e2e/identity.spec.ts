@@ -1,0 +1,16 @@
+import {expect,test} from '@playwright/test'
+test.skip(process.env.LUNAORBIT_IDENTITY_E2E!=='1','Requires explicit isolated identity Mock server on loopback18080')
+test('identity realm login/logout and viewer ownership deny developer session fallback',async({page})=>{
+ await page.route('**/api/v1/**',async route=>{const url=new URL(route.request().url());url.port='18080';const response=await route.fetch({url:url.toString()});await route.fulfill({response})})
+ await page.goto('/security')
+ await page.locator('input[name=username]').fill('synthetic-admin');await page.locator('input[name=password]').fill('synthetic-identity-test-password');await page.locator('[data-login]').getByRole('button',{name:'登录',exact:true}).click()
+ await expect(page.locator('input[name=password]')).toHaveValue('');await expect(page.getByRole('status')).toContainText('平台身份已更新')
+ const created=await page.request.post('http://127.0.0.1:18080/api/v1/kafka/clusters',{headers:{Origin:'http://127.0.0.1:5173'},data:{display_name:'Synthetic identity owned',bootstrap_servers:['broker.synthetic.test:9092'],enabled:true,security_protocol:'PLAINTEXT',sasl_mechanism:'',tls_server_name:''}});expect(created.status()).toBe(201);const cluster=await created.json()
+ await page.getByRole('button',{name:'退出',exact:true}).click();await expect(page.getByRole('status')).toContainText('已退出')
+ expect((await page.request.get(`http://127.0.0.1:18080/api/v1/kafka/clusters/${cluster.id}`)).status()).toBe(401)
+ await page.locator('input[name=username]').fill('synthetic-viewer');await page.locator('input[name=password]').fill('synthetic-identity-test-password');await page.locator('[data-login]').getByRole('button',{name:'登录',exact:true}).click();await expect(page.getByRole('status')).toContainText('平台身份已更新')
+ expect((await page.request.get(`http://127.0.0.1:18080/api/v1/kafka/clusters/${cluster.id}`)).status()).toBe(404)
+ expect((await page.request.post('http://127.0.0.1:18080/api/v1/dev/session',{data:{},headers:{Origin:'http://127.0.0.1:5173'}})).status()).toBe(404)
+ expect((await page.request.post('http://127.0.0.1:18080/api/v1/kafka/clusters',{data:{},headers:{Origin:'http://127.0.0.1:5173'}})).status()).toBe(403)
+ expect(await page.evaluate(()=>({local:{...localStorage},session:{...sessionStorage}}))).toEqual({local:{},session:{}})
+})
