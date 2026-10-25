@@ -21,7 +21,7 @@ func apiError(c *gin.Context, e error) {
 		status = 400
 	case "RATE_LIMITED":
 		status = 429
-	case "CONFLICT":
+	case "CONFLICT", "SCOPE_REMOVED":
 		status = 409
 	case "REGISTRY_UNAVAILABLE", "STORAGE_UNAVAILABLE":
 		status = 503

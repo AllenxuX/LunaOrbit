@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"lunaorbit/backend/internal/discovery/resource"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -58,6 +60,27 @@ type Service struct {
 	slots       chan struct{}
 	workers     sync.WaitGroup
 	labBindings []LabBinding
+	// scopeMu guards the scope registry, which auto mode changes at runtime.
+	scopeMu  sync.RWMutex
+	removed  map[string]time.Time
+	kiteErr  map[string]string
+	autoMode bool
+}
+
+// ClusterEntry is one cluster from Kite's cluster list (name only; Kite has
+// no stable cluster identifier and omits clusters the key cannot access).
+type ClusterEntry struct{ Name, Error string }
+
+// ScopeInfo is the public scope listing. Auto-only fields are omitted for
+// static scopes, so the legacy listing is unchanged.
+type ScopeInfo struct {
+	ID          string     `json:"id"`
+	Synthetic   bool       `json:"synthetic"`
+	KubeCluster string     `json:"k8s_cluster,omitempty"`
+	Auto        bool       `json:"auto,omitempty"`
+	Removed     bool       `json:"removed,omitempty"`
+	RemovedAt   *time.Time `json:"removed_at,omitempty"`
+	KiteError   string     `json:"kite_error,omitempty"`
 }
 
 func NewService(store Store, scopes []resource.Scope, factory SourceFactory, lookup RegistrationLookup) *Service {
@@ -66,7 +89,7 @@ func NewService(store Store, scopes []resource.Scope, factory SourceFactory, loo
 	for _, scope := range scopes {
 		byID[scope.ID] = scope
 	}
-	return &Service{store: store, lookup: lookup, factory: factory, scopes: byID, ctx: ctx, cancel: cancel, jobs: map[string]Job{}, slots: make(chan struct{}, 2)}
+	return &Service{store: store, lookup: lookup, factory: factory, scopes: byID, ctx: ctx, cancel: cancel, jobs: map[string]Job{}, slots: make(chan struct{}, 2), removed: map[string]time.Time{}, kiteErr: map[string]string{}}
 }
 func NewMockService(store Store, lookup RegistrationLookup) (*Service, error) {
 	_, scope, closeMock, e := collector.NewMock("success")
@@ -93,13 +116,132 @@ func (s *Service) authorize(actor Actor, write bool) error {
 	}
 	return nil
 }
-func (s *Service) Scopes(actor Actor) ([]resource.Scope, error) {
+func (s *Service) scope(id string) (resource.Scope, bool) {
+	s.scopeMu.RLock()
+	defer s.scopeMu.RUnlock()
+	scope, ok := s.scopes[id]
+	return scope, ok
+}
+func (s *Service) isRemoved(id string) bool {
+	s.scopeMu.RLock()
+	defer s.scopeMu.RUnlock()
+	_, gone := s.removed[id]
+	return gone
+}
+
+// EnableAutoScopes switches lab bindings to cluster-qualified entries.
+func (s *Service) EnableAutoScopes() { s.scopeMu.Lock(); s.autoMode = true; s.scopeMu.Unlock() }
+
+// AutoScopeID derives a stable, URL-safe scope id from a Kite cluster name.
+func AutoScopeID(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+		if b.Len() >= 40 {
+			break
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	sum := sha256.Sum256([]byte(name))
+	if slug == "" {
+		return "k8s-" + hex.EncodeToString(sum[:4])
+	}
+	return "k8s-" + slug + "-" + hex.EncodeToString(sum[:4])
+}
+
+// SyncClusters reconciles auto scopes with Kite's current cluster list: new
+// names get a scope, missing names are marked removed (history and bindings
+// are kept), returning names become active again. Static scopes are untouched.
+func (s *Service) SyncClusters(list []ClusterEntry, now time.Time) {
+	s.scopeMu.Lock()
+	defer s.scopeMu.Unlock()
+	present := map[string]bool{}
+	for _, entry := range list {
+		if entry.Name == "" {
+			continue
+		}
+		id := AutoScopeID(entry.Name)
+		if old, ok := s.scopes[id]; ok && !old.Auto {
+			continue
+		}
+		present[id] = true
+		if _, ok := s.scopes[id]; !ok {
+			s.scopes[id] = resource.Scope{ID: id, Cluster: entry.Name, Auto: true}
+		}
+		delete(s.removed, id)
+		if entry.Error != "" {
+			s.kiteErr[id] = entry.Error
+		} else {
+			delete(s.kiteErr, id)
+		}
+	}
+	for id, scope := range s.scopes {
+		if scope.Auto && !present[id] {
+			if _, gone := s.removed[id]; !gone {
+				s.removed[id] = now.UTC()
+			}
+		}
+	}
+}
+func (s *Service) markRemoved(id string, now time.Time) {
+	s.scopeMu.Lock()
+	defer s.scopeMu.Unlock()
+	if _, gone := s.removed[id]; !gone {
+		s.removed[id] = now.UTC()
+	}
+}
+
+// WatchClusters polls Kite's cluster list until the service closes. A failed
+// poll changes nothing, so a transient Kite error never marks clusters removed.
+func (s *Service) WatchClusters(interval time.Duration, list func(context.Context) ([]ClusterEntry, error)) {
+	poll := func() {
+		ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+		defer cancel()
+		if rows, e := list(ctx); e == nil {
+			s.SyncClusters(rows, time.Now())
+		}
+	}
+	poll()
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-ticker.C:
+				poll()
+			}
+		}
+	}()
+}
+
+func (s *Service) Scopes(actor Actor) ([]ScopeInfo, error) {
 	if e := s.authorize(actor, false); e != nil {
 		return nil, e
 	}
-	result := make([]resource.Scope, 0, len(s.scopes))
+	s.scopeMu.RLock()
+	defer s.scopeMu.RUnlock()
+	result := make([]ScopeInfo, 0, len(s.scopes))
 	for _, scope := range s.scopes {
-		result = append(result, resource.Scope{ID: scope.ID, Synthetic: scope.Synthetic})
+		info := ScopeInfo{ID: scope.ID, Synthetic: scope.Synthetic}
+		if scope.Auto {
+			info.KubeCluster, info.Auto, info.KiteError = scope.Cluster, true, s.kiteErr[scope.ID]
+			if at, gone := s.removed[scope.ID]; gone {
+				at := at
+				info.Removed, info.RemovedAt = true, &at
+			}
+		}
+		result = append(result, info)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
@@ -108,7 +250,7 @@ func (s *Service) Snapshot(ctx context.Context, actor Actor, scope string) (Snap
 	if e := s.authorize(actor, false); e != nil {
 		return Snapshot{}, e
 	}
-	if _, ok := s.scopes[scope]; !ok {
+	if _, ok := s.scope(scope); !ok {
 		return Snapshot{}, ErrNotFound
 	}
 	snapshot, e := s.store.Load(ctx, actor.ID, scope)
@@ -128,9 +270,12 @@ func (s *Service) Start(ctx context.Context, actor Actor, scopeID, scenario stri
 	if e := s.authorize(actor, true); e != nil {
 		return Job{}, e
 	}
-	scope, ok := s.scopes[scopeID]
+	scope, ok := s.scope(scopeID)
 	if !ok {
 		return Job{}, ErrNotFound
+	}
+	if s.isRemoved(scopeID) {
+		return Job{}, fail("SCOPE_REMOVED")
 	}
 	if scenario == "" {
 		scenario = "success"
@@ -183,7 +328,7 @@ func (s *Service) Latest(ctx context.Context, actor Actor, scope string) (Job, e
 	if e := s.authorize(actor, false); e != nil {
 		return Job{}, e
 	}
-	if _, ok := s.scopes[scope]; !ok {
+	if _, ok := s.scope(scope); !ok {
 		return Job{}, ErrNotFound
 	}
 	s.mu.Lock()
@@ -233,7 +378,15 @@ func (s *Service) run(actor Actor, scope resource.Scope, scenario, key string) {
 	} else {
 		col, e = source.Collect(ctx, scope)
 		if e != nil {
-			col = resource.Collection{Scope: scope, ObservedAt: time.Now().UTC(), ErrorCode: "COLLECTION_FAILED"}
+			failure := "COLLECTION_FAILED"
+			if scope.Auto && col.ErrorCode != "" {
+				failure = col.ErrorCode
+			}
+			col = resource.Collection{Scope: scope, ObservedAt: time.Now().UTC(), ErrorCode: failure}
+			if scope.Auto && failure == "NOT_FOUND" {
+				// Kite answers 404 for a cluster that is no longer registered.
+				s.markRemoved(scope.ID, time.Now())
+			}
 		}
 	}
 	if ctx.Err() != nil {
@@ -281,8 +434,11 @@ func (s *Service) Bind(ctx context.Context, actor Actor, scope string, input Man
 	if actor.ID == "" || (actor.Role != "admin" && actor.Role != "information") {
 		return ManualBinding{}, fail("FORBIDDEN")
 	}
-	if _, ok := s.scopes[scope]; !ok {
+	if _, ok := s.scope(scope); !ok {
 		return ManualBinding{}, ErrNotFound
+	}
+	if s.isRemoved(scope) {
+		return ManualBinding{}, fail("SCOPE_REMOVED")
 	}
 	if !safeName.MatchString(input.Namespace) || !safeName.MatchString(input.WorkloadUID) || !safeName.MatchString(input.Alias) || len(input.RegistrationID) > 128 {
 		return ManualBinding{}, fail("INVALID_ARGUMENT")

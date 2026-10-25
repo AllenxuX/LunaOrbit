@@ -16,6 +16,9 @@ type LabBinding struct {
 	WorkloadName string `json:"workload_name"`
 	Alias        string `json:"alias"`
 	Bootstrap    string `json:"bootstrap"`
+	// Cluster is the Kite cluster name; required for auto-enumerated scopes so
+	// same-named workloads in different Kubernetes clusters never share a binding.
+	Cluster string `json:"k8s_cluster,omitempty"`
 }
 
 func (s *Service) ConfigureLabBindings(raw string) error {
@@ -28,20 +31,28 @@ func (s *Service) ConfigureLabBindings(raw string) error {
 	if d.Decode(&rows) != nil || d.Decode(new(any)) != io.EOF || len(rows) < 2 || len(rows) > 16 {
 		return errors.New("invalid lab bindings")
 	}
+	s.scopeMu.RLock()
+	defer s.scopeMu.RUnlock()
 	seen := map[string]bool{}
 	for _, row := range rows {
 		if !safeName.MatchString(row.Namespace) || !safeName.MatchString(row.WorkloadName) || !safeName.MatchString(row.Alias) || len(addresses([]string{row.Bootstrap})) != 1 {
 			return errors.New("invalid lab bindings")
 		}
 		allowed := false
+		if s.autoMode {
+			allowed = validClusterName(row.Cluster)
+		}
 		for _, scope := range s.scopes {
+			if s.autoMode || (row.Cluster != "" && row.Cluster != scope.Cluster) {
+				continue
+			}
 			for _, ns := range scope.Namespaces {
 				if !scope.Synthetic && ns == row.Namespace {
 					allowed = true
 				}
 			}
 		}
-		key := row.Namespace + "/" + row.WorkloadName + "/" + row.Alias
+		key := row.Cluster + "/" + row.Namespace + "/" + row.WorkloadName + "/" + row.Alias
 		if !allowed || seen[key] {
 			return errors.New("invalid lab bindings")
 		}
@@ -51,8 +62,36 @@ func (s *Service) ConfigureLabBindings(raw string) error {
 	return nil
 }
 
+func validClusterName(name string) bool {
+	if name == "" || len(name) > 253 || strings.TrimSpace(name) != name {
+		return false
+	}
+	for _, c := range name {
+		if c < 32 || c > 126 {
+			return false
+		}
+	}
+	return true
+}
+
+// labBindingsFor returns the trusted entries that apply to one scope.
+func (s *Service) labBindingsFor(scope resource.Scope) []LabBinding {
+	var out []LabBinding
+	for _, entry := range s.labBindings {
+		if scope.Auto && entry.Cluster != scope.Cluster {
+			continue
+		}
+		if !scope.Auto && entry.Cluster != "" && entry.Cluster != scope.Cluster {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 func (s *Service) resolveLabBindings(col resource.Collection, registrations []Registration, bindings []ManualBinding) []ManualBinding {
-	if len(s.labBindings) == 0 || col.Scope.Synthetic || col.ErrorCode != "" {
+	entries := s.labBindingsFor(col.Scope)
+	if len(entries) == 0 || col.Scope.Synthetic || col.ErrorCode != "" {
 		return bindings
 	}
 	// Build the observed references first; never invent a workload or alias.
@@ -64,7 +103,7 @@ func (s *Service) resolveLabBindings(col resource.Collection, registrations []Re
 		if link.Stale || !link.Observed {
 			continue
 		}
-		for _, entry := range s.labBindings {
+		for _, entry := range entries {
 			if entry.Namespace != link.Namespace || entry.WorkloadName != link.WorkloadName || (entry.Alias != link.SourceAlias && entry.Alias != link.TargetAlias) {
 				continue
 			}
