@@ -102,11 +102,16 @@ type Scope struct {
 	Cluster    string   `json:"-"`
 	Namespaces []string `json:"-"`
 	Synthetic  bool     `json:"synthetic"`
+	// Auto marks a scope enumerated from Kite's cluster list (one scope per
+	// Kubernetes cluster, every namespace except the excluded ones).
+	Auto bool `json:"-"`
 }
 type NamespaceBatch struct {
-	Namespace   string
-	Complete    bool
-	ErrorCode   string
+	Namespace string
+	Complete  bool
+	ErrorCode string
+	// Signals holds MM2 identification evidence per deployment UID (auto scopes).
+	Signals     map[string][]string
 	Deployments []Deployment
 	ConfigMaps  []ConfigMap
 	Pods        []Pod
@@ -116,4 +121,7 @@ type Collection struct {
 	ObservedAt time.Time
 	Namespaces []NamespaceBatch
 	ErrorCode  string
+	// Scan counters for auto scopes: namespaces and deployments examined.
+	NamespacesScanned  int
+	DeploymentsScanned int
 }

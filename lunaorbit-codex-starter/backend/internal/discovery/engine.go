@@ -326,8 +326,50 @@ func Build(col resource.Collection, registrations []Registration, bindings []Man
 		result.Links = append(result.Links, link)
 	}
 	sort.Slice(result.Links, func(i, j int) bool { return result.Links[i].ID < result.Links[j].ID })
+	if col.Scope.Auto {
+		classifyAuto(&result, col)
+	}
 	buildGraph(&result)
 	return result, nil
+}
+
+func classifyAuto(result *Snapshot, col resource.Collection) {
+	cluster := col.Scope.Cluster
+	linked := map[string]bool{}
+	for i := range result.Links {
+		result.Links[i].KubeCluster = cluster
+		if !result.Links[i].Stale {
+			linked[result.Links[i].WorkloadUID] = true
+		}
+	}
+	scan := ScanSummary{KubeCluster: cluster, Namespaces: col.NamespacesScanned, Deployments: col.DeploymentsScanned}
+	withMM2 := map[string]bool{}
+	for _, batch := range col.Namespaces {
+		for _, d := range batch.Deployments {
+			signals := batch.Signals[d.Metadata.UID]
+			if len(signals) == 0 {
+				continue
+			}
+			status := "suspected"
+			if linked[d.Metadata.UID] {
+				status = "confirmed"
+				scan.Confirmed++
+				withMM2[batch.Namespace] = true
+			} else {
+				scan.Suspected++
+			}
+			result.Workloads = append(result.Workloads, WorkloadClass{KubeCluster: cluster, Namespace: batch.Namespace, Name: d.Metadata.Name, UID: d.Metadata.UID, Status: status, Signals: append([]string(nil), signals...)})
+		}
+	}
+	scan.NamespacesWithMM2 = len(withMM2)
+	sort.Slice(result.Workloads, func(i, j int) bool {
+		a, b := result.Workloads[i], result.Workloads[j]
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Name < b.Name
+	})
+	result.Scan = &scan
 }
 
 func buildGraph(snapshot *Snapshot) {

@@ -89,6 +89,8 @@ type Link struct {
 	Evidence                 []Evidence    `json:"evidence"`
 	Notes                    []string      `json:"notes"`
 	Declarations             []Declaration `json:"declarations"`
+	// KubeCluster is set only for auto-enumerated scopes.
+	KubeCluster string `json:"k8s_cluster,omitempty"`
 }
 type Node struct {
 	ID                string `json:"id"`
@@ -117,6 +119,29 @@ type Snapshot struct {
 	Nodes       []Node    `json:"nodes"`
 	Edges       []Edge    `json:"edges"`
 	Issues      []Issue   `json:"issues"`
+	// Auto scopes only: MM2 identification and scan counters.
+	Workloads []WorkloadClass `json:"workloads,omitempty"`
+	Scan      *ScanSummary    `json:"scan,omitempty"`
+}
+
+// WorkloadClass is a deployment that looked like MM2. "confirmed" produced at
+// least one replication link; "suspected" did not and never enters the graph.
+// Deployments without MM2 features are "unidentified" and are not listed.
+type WorkloadClass struct {
+	KubeCluster string   `json:"k8s_cluster"`
+	Namespace   string   `json:"namespace"`
+	Name        string   `json:"name"`
+	UID         string   `json:"workload_uid"`
+	Status      string   `json:"status"`
+	Signals     []string `json:"signals"`
+}
+type ScanSummary struct {
+	KubeCluster       string `json:"k8s_cluster"`
+	Namespaces        int    `json:"namespaces"`
+	Deployments       int    `json:"deployments"`
+	NamespacesWithMM2 int    `json:"namespaces_with_mm2"`
+	Confirmed         int    `json:"confirmed"`
+	Suspected         int    `json:"suspected"`
 }
 type ManualBinding struct {
 	ScopeID        string    `json:"scope_id"`
