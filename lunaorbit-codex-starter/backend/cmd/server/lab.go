@@ -48,24 +48,97 @@ func mountRuntime(router *gin.Engine, cfg config.Config) {
 	})
 }
 
+type labAutoConfig struct {
+	clusters, excludeClusters map[string]bool
+	excludeNS, onlyNS         map[string]bool
+	poll                      time.Duration
+}
+
+func csvSet(raw string) map[string]bool {
+	out := map[string]bool{}
+	for _, v := range strings.Split(raw, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out[v] = true
+		}
+	}
+	return out
+}
+
+// autoLabConfig reads the optional limits for auto discovery. Manual settings
+// only narrow or exclude; none are required.
+func autoLabConfig(env func(string) string) labAutoConfig {
+	cfg := labAutoConfig{clusters: csvSet(env("KITE_CLUSTERS")), excludeClusters: csvSet(env("KITE_EXCLUDE_CLUSTERS")), onlyNS: csvSet(env("KITE_NAMESPACES")), poll: 45 * time.Second}
+	if name := env("KITE_CLUSTER_NAME"); name != "" {
+		cfg.clusters[name] = true
+	}
+	if ns := env("KITE_NAMESPACE"); ns != "" {
+		cfg.onlyNS[ns] = true
+	}
+	if raw := env("KITE_EXCLUDE_NAMESPACES"); raw != "" {
+		cfg.excludeNS = csvSet(raw)
+	} else {
+		cfg.excludeNS = collector.DefaultExcludedNamespaces()
+	}
+	if n, e := strconv.Atoi(env("KITE_CLUSTER_POLL_SECONDS")); e == nil && n >= 10 && n <= 600 {
+		cfg.poll = time.Duration(n) * time.Second
+	}
+	return cfg
+}
+func (c labAutoConfig) includeCluster(name string) bool {
+	return !c.excludeClusters[name] && (len(c.clusters) == 0 || c.clusters[name])
+}
+
 func newLabDiscovery(store discovery.Store, lookup discovery.RegistrationLookup, env func(string) string) (*discovery.Service, error) {
-	if env("KITE_LAB_VERSION") != "v0.16.0" || env("KITE_CLUSTER_NAME") == "" || env("KITE_NAMESPACE") == "" {
+	if env("KITE_LAB_VERSION") != "v0.16.0" {
 		return nil, errors.New("invalid lab discovery configuration")
 	}
+	// Legacy: one fixed cluster and namespace keeps the original single scope.
+	legacy := env("KITE_CLUSTER_NAME") != "" && env("KITE_NAMESPACE") != ""
 	base := env("KITE_BASE_URL")
-	client, err := kite.New(kite.Config{BaseURL: base, AllowedOrigins: []string{base}, APIKey: env("KITE_API_KEY"), Timeout: 4 * time.Second})
+	newClient := func() (*kite.HTTPClient, error) {
+		return kite.New(kite.Config{BaseURL: base, AllowedOrigins: []string{base}, APIKey: env("KITE_API_KEY"), Timeout: 4 * time.Second})
+	}
+	client, err := newClient()
 	if err != nil {
 		return nil, errors.New("invalid lab Kite transport configuration")
 	}
 	client.Close()
-	scope := resource.Scope{ID: "readonly-lab", Cluster: env("KITE_CLUSTER_NAME"), Namespaces: []string{env("KITE_NAMESPACE")}}
-	service := discovery.NewService(store, []resource.Scope{scope}, func(_ resource.Scope, _ string) (collector.Source, func(), error) {
-		c, e := kite.New(kite.Config{BaseURL: base, AllowedOrigins: []string{base}, APIKey: env("KITE_API_KEY"), Timeout: 4 * time.Second})
+	auto := autoLabConfig(env)
+	var scopes []resource.Scope
+	if legacy {
+		scopes = []resource.Scope{{ID: "readonly-lab", Cluster: env("KITE_CLUSTER_NAME"), Namespaces: []string{env("KITE_NAMESPACE")}}}
+	}
+	service := discovery.NewService(store, scopes, func(scope resource.Scope, _ string) (collector.Source, func(), error) {
+		c, e := newClient()
 		if e != nil {
 			return nil, func() {}, errors.New("lab transport unavailable")
 		}
+		if scope.Auto {
+			return collector.AutoKiteSource{Client: c, Decoder: kite.LabV016Decoder{}, ExcludeNamespaces: auto.excludeNS, OnlyNamespaces: auto.onlyNS}, c.Close, nil
+		}
 		return collector.KiteSource{Client: c, Decoder: kite.LabV016Decoder{}}, c.Close, nil
 	}, lookup)
+	if !legacy {
+		service.EnableAutoScopes()
+		service.WatchClusters(auto.poll, func(ctx context.Context) ([]discovery.ClusterEntry, error) {
+			c, e := newClient()
+			if e != nil {
+				return nil, e
+			}
+			defer c.Close()
+			rows, e := c.ListClusters(ctx)
+			if e != nil {
+				return nil, e
+			}
+			out := []discovery.ClusterEntry{}
+			for _, r := range rows {
+				if auto.includeCluster(r.Name) {
+					out = append(out, discovery.ClusterEntry{Name: r.Name, Error: r.Error})
+				}
+			}
+			return out, nil
+		})
+	}
 	if raw := env("KAFKA_LAB_ALIAS_BINDINGS"); raw != "" {
 		if err := service.ConfigureLabBindings(raw); err != nil {
 			service.Close()
