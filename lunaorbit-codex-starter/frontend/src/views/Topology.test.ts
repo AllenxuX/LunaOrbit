@@ -299,3 +299,45 @@ it('toolbar holding 更多 does not clip its menu',async()=>{
  const src=(await import('./Topology.vue?raw')).default
  expect(src).toMatch(/\.topology-toolbar\.panel\{[^}]*overflow:visible/)
 })
+
+const menuItems=(w:ReturnType<typeof setup>)=>w.findAll('.more-menu > *').map(e=>e.text().replace(/\s+/g,' ').trim().split(' ')[0]!)
+const tab=async(w:ReturnType<typeof setup>,m:string)=>{await w.get(`[data-mode="${m}"]`).trigger('click');await flushPromises()}
+it('LUNA-34 menu items and order per tab, mock and non-mock',async()=>{
+ const w=setup(false,false,'',{},'mm2');await flushPromises()
+ expect(menuItems(w)).toEqual(['显示禁用任务（0）','整理布局','保存个人视图','重新加载视图','视图版本','Mock'])
+ await tab(w,'relations');expect(menuItems(w)).toEqual(['显示禁用关系（0）','整理布局','保存个人视图','重新加载视图','视图版本','Mock'])
+ for(const m of ['instances','tasks']){await tab(w,m);expect(menuItems(w)).toEqual(['显示禁用任务（0）','重新加载视图','Mock'])}
+ w.unmount()
+ testRuntime.value.mode='readonly-lab';const r=setup(false,false,'',{},'tasks');await flushPromises()
+ expect(menuItems(r)).toEqual(['显示禁用任务（0）','重新加载视图']);r.unmount()
+})
+it('LUNA-34 disabled toggle is shared across tabs and does not close the menu; mock select does not close either',async()=>{
+ const w=setup(false,false,'',{},'mm2');await flushPromises()
+ const more=()=>w.get('.topology-more').element as HTMLDetailsElement
+ more().open=true;await w.get('[data-show-disabled]').setValue(true);expect(more().open).toBe(true)
+ await w.get('.more-menu select').setValue('partial_failure');expect(more().open).toBe(true)
+ for(const m of ['relations','instances','tasks','mm2']){await tab(w,m);expect((w.get('[data-show-disabled]').element as HTMLInputElement).checked).toBe(true)}
+ w.unmount()
+})
+it('LUNA-34 unsaved layout notice with inline save, kept across tab switches',async()=>{
+ const w=setup(false,false,'',{},'mm2');await flushPromises()
+ expect(w.find('[data-unsaved]').exists()).toBe(false)
+ await w.get('[data-move]').trigger('click')
+ expect(w.get('[data-unsaved]').text()).toContain('有未保存的布局改动');expect(w.find('.dirty-dot').exists()).toBe(true)
+ await tab(w,'tasks');expect(w.find('[data-unsaved]').exists()).toBe(false)
+ await tab(w,'mm2');expect(w.get('[data-unsaved]').text()).toContain('有未保存的布局改动')
+ await w.get('[data-inline-save]').trigger('click');await flushPromises()
+ expect(w.find('[data-unsaved]').exists()).toBe(false);expect(w.find('.dirty-dot').exists()).toBe(false)
+ w.unmount()
+})
+it('LUNA-34 reload with unsaved changes asks for confirmation',async()=>{
+ const w=setup(false,false,'',{},'mm2');await flushPromises()
+ await w.get('[data-move]').trigger('click')
+ expect(w.get('[data-reload-view]').text()).toBe('重新加载视图（丢弃未保存改动）')
+ const ask=vi.fn(()=>false);vi.stubGlobal('confirm',ask)
+ await w.get('[data-reload-view]').trigger('click');await flushPromises()
+ expect(ask).toHaveBeenCalledTimes(1);expect(w.find('[data-unsaved]').exists()).toBe(true)
+ ask.mockReturnValue(true);await w.get('[data-reload-view]').trigger('click');await flushPromises()
+ expect(w.find('[data-unsaved]').exists()).toBe(false)
+ w.unmount()
+})
