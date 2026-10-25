@@ -87,3 +87,23 @@ export function conditionsChanged(applied:Conditions|undefined,form:Conditions):
 }
 
 export function cacheKey(c:Conditions){return 'lunaorbit.lineage.'+JSON.stringify([c.cluster,c.topic,c.direction,c.depth])}
+
+const ROLE_KEY='__roles'
+type Role='root'|'upstream'|'downstream'|'both'
+/**
+ * 「上下游」= directed ancestors ∪ directed descendants, from two independent backend queries.
+ * The backend's direction=both runs one mixed BFS that also walks sibling branches, so the page never uses it.
+ */
+export function mergeDirections(up:Lineage,down:Lineage):Lineage {
+ const nodes=new Map<string,LineageNode>(),roles:Record<string,Role>={},edges=new Map<string,LineageEdge>()
+ const mark=(id:string,r:'upstream'|'downstream')=>{roles[id]=id===up.root_id?'root':roles[id]&&roles[id]!==r?'both':r}
+ for(const [g,r] of [[up,'upstream'],[down,'downstream']] as const){for(const n of g.nodes){nodes.set(n.id,{...nodes.get(n.id),...n});mark(n.id,r)}for(const e of g.edges)edges.set(e.id,e)}
+ const issues=[...up.issues,...down.issues].filter((i,k,all)=>all.findIndex(o=>o.code===i.code&&o.link_id===i.link_id&&o.cluster_id===i.cluster_id)===k)
+ return Object.assign({root_id:up.root_id,observed_at:down.observed_at>up.observed_at?down.observed_at:up.observed_at,nodes:[...nodes.values()],edges:[...edges.values()],issues,truncated:up.truncated||down.truncated,depth:Math.max(up.depth,down.depth)},{[ROLE_KEY]:roles})
+}
+export function nodeRole(g:Lineage,id:string):Role|undefined {return id===g.root_id?'root':(g as Lineage&{[ROLE_KEY]?:Record<string,Role>})[ROLE_KEY]?.[id]}
+/** Neutral existence wording by the node's role; never calls an observed-missing topic a "配置目标". */
+export function existenceLabel(g:Lineage,n:LineageNode):string {
+ const role=nodeRole(g,n.id),prefix=role==='root'?'根节点':role==='upstream'?'上游':role==='downstream'?'下游':role==='both'?'上下游':'关联'
+ return n.exists===true?`${prefix} · Topic 存在`:n.exists===false?`${prefix}（Topic 不存在）`:`${prefix} · Topic 存在性未确认`
+}

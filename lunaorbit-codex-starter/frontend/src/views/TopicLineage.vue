@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { registryRequest, type ClusterPage } from '../api/registry'
 import { kafkaList, type Topic } from '../api/kafkaops'
 import { readLineage, observedTime, evidenceLabel, kindLabel, resourcePath, type Direction, type Lineage, type LineageNode } from '../api/topic-lineage'
-import { cacheKey, classifyLineage, collapseLineage, conditionsChanged, pickDisplayGraph, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
+import { cacheKey, classifyLineage, collapseLineage, conditionsChanged, existenceLabel, mergeDirections, pickDisplayGraph, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
 import TopicLineageCanvas from '../components/TopicLineageCanvas.vue'
 type ViewEdge=LineageView['edges'][number]
 interface Discovery {stale:boolean;observedAt:string;links:RuleLink[]}
@@ -25,7 +25,8 @@ const nodeName=(id:string)=>{const n=nodeById(id);return n?`${n.cluster_name??'�
 const selectedPath=computed(()=>selectedNode.value?resourcePath(selectedNode.value):undefined)
 const canQuery=computed(()=>!!cluster.value&&!!topic.value.trim()&&topicState.value!=='missing'&&!busy.value)
 const edgeFreshness=computed(()=>discovery.value?.stale||display.value.graph!==data.value?'数据已过期':'当前')
-function existence(n:LineageNode){return n.exists===true?'已读取到 Topic（不代表复制已验证）':n.exists===false?'不存在（配置目标）':'配置目标 · 存在性未确认'}
+function existence(n:LineageNode){const g=display.value.graph;return g?existenceLabel(g,n):'Topic 存在性未确认'}
+const tags=computed(()=>{const g=display.value.graph;return g?Object.fromEntries(g.nodes.filter(n=>n.kind==='topic').map(n=>[n.id,existenceLabel(g,n)])):{}})
 async function loadTopics(){
  const token=++catalogEpoch;topics.value=[];catalogError.value='';if(!cluster.value){topicState.value='unknown';return}
  topicState.value='loading'
@@ -52,7 +53,9 @@ async function load(){
  if(!cluster.value||!topic.value.trim()){busy.value=false;data.value=undefined;applied.value=undefined;return}
  const c={...form.value};busy.value=true;request=new globalThis.AbortController();timer=globalThis.setTimeout(()=>request?.abort(),20000)
  try{
-  const [result,disc]=await Promise.all([readLineage(c.cluster,c.topic,c.depth,c.direction,request.signal),readDiscovery().catch(():Discovery=>({stale:true,observedAt:'',links:[]}))])
+  // 上下游 = two directed traversals merged; the backend's mixed both-BFS would leak sibling branches.
+  const signal=request.signal,trace=c.direction==='both'?Promise.all([readLineage(c.cluster,c.topic,c.depth,'upstream',signal),readLineage(c.cluster,c.topic,c.depth,'downstream',signal)]).then(([u,d])=>mergeDirections(u,d)):readLineage(c.cluster,c.topic,c.depth,c.direction,signal)
+  const [result,disc]=await Promise.all([trace,readDiscovery().catch(():Discovery=>({stale:true,observedAt:'',links:[]}))])
   if(token!==epoch)return
   discovery.value=disc;applied.value=c;data.value=result
   if(!disc.stale&&result.edges.length)writeCache(c,result)
@@ -101,7 +104,7 @@ onBeforeUnmount(()=>{++epoch;++catalogEpoch;request?.abort();globalThis.clearTim
       <dl data-lineage-times class="lineage-times"><dt>查询时间</dt><dd>{{ observedTime(data?.observed_at) }}</dd><dt>配置采集时间</dt><dd>{{ observedTime(discovery?.observedAt) }}{{ discovery?.stale?'（已过期）':'' }}</dd><dt>Topic 元数据时间</dt><dd>{{ observedTime(rootNode?.observed_at) }}</dd></dl>
       <ul v-if="reasons.length" class="lineage-reasons"><li v-for="r in reasons" :key="r.kind" :data-reason="r.kind"><strong>{{ r.title }}</strong><p v-for="f in r.facts" :key="f">{{ f }}</p><div class="reason-actions"><template v-for="a in r.actions" :key="a.label"><router-link v-if="a.to" :to="a.to">{{ a.label }}</router-link><button v-else type="button" @click="act(a)">{{ a.label }}</button></template></div></li></ul>
       <div v-if="view" class="lineage-workspace" :class="{'has-selection': selectedNode || selectedEdge}">
-        <TopicLineageCanvas :view="view" :root-id="display.graph!.root_id" @select-node="selectedNode=$event;selectedEdge=undefined" @select-edge="selectedEdge=$event;selectedNode=undefined" />
+        <TopicLineageCanvas :view="view" :root-id="display.graph!.root_id" :tags="tags" @select-node="selectedNode=$event;selectedEdge=undefined" @select-edge="selectedEdge=$event;selectedNode=undefined" />
         <aside v-if="selectedNode || selectedEdge" class="lineage-detail panel" aria-label="链路详情">
           <button class="detail-close" aria-label="关闭链路详情" @click="selectedNode=undefined;selectedEdge=undefined">关闭</button>
           <template v-if="selectedNode"><h2>{{ kindLabel(selectedNode.kind) }}</h2><h3>{{ selectedNode.cluster_name }} / {{ selectedNode.topic??selectedNode.label }}</h3><dl><template v-if="selectedNode.kind==='topic'"><dt>Topic 存在性</dt><dd>{{ existence(selectedNode) }}</dd></template><template v-if="selectedNode.owner"><dt>负责人</dt><dd>{{ selectedNode.owner }}</dd></template><dt>Topic 元数据时间</dt><dd>{{ observedTime(selectedNode.observed_at) }}</dd></dl><router-link v-if="selectedPath" :to="selectedPath">查看资源详情</router-link><button v-if="selectedNode.kind==='topic' && selectedNode.cluster_id" @click="asRoot(selectedNode)">以此 Topic 为根</button></template>

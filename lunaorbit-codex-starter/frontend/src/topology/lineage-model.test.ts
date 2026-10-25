@@ -97,3 +97,49 @@ describe('conditions vs applied result',()=>{
   expect(conditionsChanged(undefined,applied)).toBe(false)
  })
 })
+
+// Backend-shaped trace over the 9-cluster lab. 'both' reproduces the backend's single mixed BFS (the bug source).
+const LAB:[string,string][]=[['k1','k2'],['k1','k3'],['k1','k4'],['k2','k5'],['k3','k6'],['k4','k7'],['k5','k8'],['k6','k8'],['k7','k8'],['k8','k9']]
+function trace(root:string,direction:'upstream'|'downstream'|'both',depth:number,exists:(c:string)=>boolean,pairs:[string,string][]=LAB):Lineage {
+ const nodes=new Map<string,Lineage['nodes'][number]>(),edges:Lineage['edges']=[],seen=new Set([root]),q:[string,number][]=[[root,0]]
+ const add=(c:string)=>nodes.set(`topic:${c}`,{id:`topic:${c}`,kind:'topic',label:'t',cluster_id:c,cluster_name:c,topic:'t',exists:exists(c)})
+ add(root)
+ while(q.length){const [c,d]=q.shift()!;if(d>=depth)continue
+  for(const [s,t] of pairs){const fwd=s===c&&direction!=='upstream',back=t===c&&direction!=='downstream';if(!fwd&&!back)continue
+   const n=fwd?t:s,id=`${s}>${t}`;add(n);nodes.set(`mm2:${id}`,{id:`mm2:${id}`,kind:'mm2',label:id,link_id:id})
+   if(!edges.some(e=>e.id===`a:${id}`))edges.push({id:`a:${id}`,source:`topic:${s}`,target:`mm2:${id}`,kind:'replicates_to',evidence:'configured',link_id:id},{id:`b:${id}`,source:`mm2:${id}`,target:`topic:${t}`,kind:'replicates_to',evidence:'configured',link_id:id})
+   if(!seen.has(n)){seen.add(n);q.push([n,d+1])}}}
+ return {root_id:`topic:${root}`,observed_at:'',nodes:[...nodes.values()],edges,issues:[],truncated:false,depth}
+}
+describe('上下游 = directed ancestors ∪ directed descendants',()=>{
+ const clustersOf=(g:Lineage)=>g.nodes.filter(n=>n.kind==='topic').map(n=>n.cluster_id).sort()
+ const relations=(g:Lineage)=>collapseLineage(g,{showConsumers:false}).edges.length
+ it('the backend mixed BFS leaks sibling branches (documents the defect)',()=>{
+  expect(clustersOf(trace('k4','both',4,()=>true))).toHaveLength(9)
+ })
+ it('k4 exclusive topic: k1 k4 k7 k8 k9, 4 relations',async()=>{
+  const {mergeDirections}=await import('./lineage-model'),only=new Set(['k4','k7','k8','k9'])
+  const g=mergeDirections(trace('k4','upstream',4,c=>only.has(c)),trace('k4','downstream',4,c=>only.has(c)))
+  expect(clustersOf(g)).toEqual(['k1','k4','k7','k8','k9']);expect(relations(g)).toBe(4)
+ })
+ it('k3 exclusive topic: k1 k3 k6 k8 k9',async()=>{
+  const {mergeDirections}=await import('./lineage-model')
+  expect(clustersOf(mergeDirections(trace('k3','upstream',4,()=>true),trace('k3','downstream',4,()=>true)))).toEqual(['k1','k3','k6','k8','k9'])
+ })
+ it('shared topic from k4 is also only ancestors + descendants (5), unlike k1 downstream (9)',async()=>{
+  const {mergeDirections}=await import('./lineage-model')
+  expect(clustersOf(mergeDirections(trace('k4','upstream',4,()=>true),trace('k4','downstream',4,()=>true)))).toEqual(['k1','k4','k7','k8','k9'])
+  expect(clustersOf(trace('k1','downstream',4,()=>true))).toHaveLength(9)
+ })
+ it('cycles terminate and roles label missing topics neutrally',async()=>{
+  const {mergeDirections,nodeRole,existenceLabel}=await import('./lineage-model'),cyc:[string,string][]=[['a','b'],['b','c'],['c','a'],['c','d']]
+  const g=mergeDirections(trace('b','upstream',4,c=>c!=='a',cyc),trace('b','downstream',4,c=>c!=='a',cyc))
+  expect(clustersOf(g)).toEqual(['a','b','c','d'])
+  const a=g.nodes.find(n=>n.cluster_id==='a')!
+  expect(nodeRole(g,a.id)).toBe('both');expect(existenceLabel(g,a)).toBe('上下游（Topic 不存在）')
+  const only=new Set(['k4','k7','k8','k9']),h=mergeDirections(trace('k4','upstream',4,c=>only.has(c)),trace('k4','downstream',4,c=>only.has(c)))
+  expect(existenceLabel(h,h.nodes.find(n=>n.cluster_id==='k1')!)).toBe('上游（Topic 不存在）')
+  expect(existenceLabel(h,h.nodes.find(n=>n.cluster_id==='k7')!)).toBe('下游 · Topic 存在')
+  expect(existenceLabel(h,h.nodes.find(n=>n.cluster_id==='k4')!)).toBe('根节点 · Topic 存在')
+ })
+})

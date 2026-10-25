@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TopicLineage from './TopicLineage.vue'
-vi.mock('../components/TopicLineageCanvas.vue',()=>({default:{name:'TopicLineageCanvas',props:['view','rootId'],emits:['selectNode','selectEdge'],template:'<div data-canvas />'}}))
+vi.mock('../components/TopicLineageCanvas.vue',()=>({default:{name:'TopicLineageCanvas',props:['view','rootId','tags'],emits:['selectNode','selectEdge'],template:'<div data-canvas />'}}))
 
 const topicNode=(c:string,name:string)=>({id:`topic:${c}`,kind:'topic',label:'orders',cluster_id:c,cluster_name:name,topic:'orders',exists:true,evidence:'observed',observed_at:'2026-10-25T10:00:00Z'})
 const graph={root_id:'topic:a',observed_at:'2026-10-25T10:05:00Z',depth:2,truncated:false,issues:[] as {code:string;message:string}[],
@@ -101,5 +101,24 @@ describe('Topic 链路 page',()=>{
  it('reads without session login',async()=>{
   const fetch=stub();const {wrapper}=await page()
   expect(fetch.mock.calls.every(([url])=>!String(url).includes('session'))).toBe(true);wrapper.unmount()
+ })
+ it('上下游 issues two directed queries and shows their union with neutral existence tags',async()=>{
+  const up={...graph,root_id:'topic:b',nodes:[{...topicNode('a','Beijing'),exists:false},topicNode('b','Shanghai'),graph.nodes[2]],edges:graph.edges}
+  const down={...graph,root_id:'topic:b',nodes:[topicNode('b','Shanghai')],edges:[]}
+  const fetch=vi.fn(async(url:string)=>{const json=(body:unknown)=>({ok:true,status:200,json:async()=>body})
+   if(url.includes('/topic-lineage?'))return json(url.includes('direction=upstream')?up:down)
+   if(url.includes('/discovery/scopes/readonly-lab/snapshot'))return json({snapshot:{stale:false,observed_at:'x',links:[link]}})
+   if(url.includes('/discovery/scopes'))return json({items:[{id:'readonly-lab',synthetic:false}]})
+   if(url.includes('/topics?'))return json({items:[{name:'orders'}],total:1})
+   return json({items:[{id:'a',display_name:'Beijing'},{id:'b',display_name:'Shanghai'}],total:2})})
+  vi.stubGlobal('fetch',fetch)
+  const {wrapper}=await page('/topic-lineage?cluster_id=b&topic=orders&direction=both')
+  const urls=fetch.mock.calls.map(([u])=>String(u)).filter(u=>u.includes('/topic-lineage?'))
+  expect(urls.some(u=>u.includes('direction=both'))).toBe(false)
+  expect(urls.some(u=>u.includes('direction=upstream'))&&urls.some(u=>u.includes('direction=downstream'))).toBe(true)
+  expect(view(wrapper).nodes.map(n=>n.id).sort()).toEqual(['topic:a','topic:b'])
+  const tags=wrapper.findComponent({name:'TopicLineageCanvas'}).props('tags') as Record<string,string>
+  expect(tags['topic:a']).toBe('上游（Topic 不存在）');expect(wrapper.text()).not.toContain('配置目标')
+  wrapper.unmount()
  })
 })
