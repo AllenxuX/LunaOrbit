@@ -1,14 +1,14 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach,expect,it,vi } from 'vitest'
 import TopologyCanvas from './TopologyCanvas.vue'
 import type { Snapshot,Position } from '../api/topology'
 interface CellOptions {id:string;source?:unknown;data?:unknown;x?:number;y?:number;vertices?:Position[];[key:string]:unknown}
 type MockCell=CellOptions&{getData:()=>unknown;setData:(data:unknown)=>void;attr:ReturnType<typeof vi.fn>;setLabels:ReturnType<typeof vi.fn>;setVertices:ReturnType<typeof vi.fn>;position:(x?:number,y?:number)=>Position}
 type EventPayload={node?:MockCell;edge?:MockCell}
-const fake=vi.hoisted(()=>({nodes:[] as MockCell[],edges:[] as MockCell[],events:new Map<string,(payload:EventPayload)=>void>(),zoomToFit:vi.fn(),resetCells:vi.fn(),requests:0,failNext:false}))
+const fake=vi.hoisted(()=>({nodes:[] as MockCell[],edges:[] as MockCell[],events:new Map<string,(payload:EventPayload)=>void>(),zoomToFit:vi.fn(),resetCells:vi.fn(),requests:0,failNext:false,failures:0,gate:undefined as Promise<void>|undefined,cancels:0}))
 vi.mock('../topology/layout-client',async()=>{
  const {createElkLayout}=await import('../topology/elk-layout')
- return {createLayoutTask:(...args:Parameters<typeof createElkLayout>)=>{fake.requests++;const result=fake.failNext?Promise.reject(new Error('synthetic worker failure')):createElkLayout(...args);fake.failNext=false;return {result,cancel:vi.fn()}}}
+ return {createLayoutTask:(...args:Parameters<typeof createElkLayout>)=>{fake.requests++;const fail=fake.failNext||fake.failures>0;if(fake.failures>0)fake.failures--;const gate=fake.gate;const result=fail?Promise.reject(new Error('synthetic worker failure')):(gate?gate.then(()=>createElkLayout(...args)):createElkLayout(...args));fake.failNext=false;return {result,cancel:()=>{fake.cancels++}}}}
 })
 vi.mock('@antv/x6',()=>({Graph:class{
  createNode(value:CellOptions){const cell={...value,getData:()=>cell.data,setData:(data:unknown)=>{cell.data=data},attr:vi.fn(),setLabels:vi.fn(),setVertices:vi.fn((points:Position[])=>{cell.vertices=points}),position:(x?:number,y?:number)=>{if(x!==undefined){cell.x=x;cell.y=y}return {x:cell.x??0,y:cell.y??0}}};return cell}
@@ -22,7 +22,7 @@ function snapshot(reverse=false):Snapshot{
  return {nodes:[{id:'a',kind:'kafka',label:'A'},{id:'b',kind:'kafka',label:'B'},{id:'mm',kind:'workload',label:'MM2'}],links:links.map(l=>({...l,source:{alias:'A',status:'unknown'},target:{alias:'B',status:'unknown'}})),edges:links.flatMap(l=>[{id:l.id+'i',source:l.id==='ba'?'b':'a',target:'mm',link_id:l.id,relation:'declared_input'},{id:l.id+'o',source:'mm',target:l.id==='ba'?'a':'b',link_id:l.id,relation:'declared_output'}])} as unknown as Snapshot
 }
 
-beforeEach(()=>{vi.clearAllMocks();fake.events.clear();fake.nodes=[];fake.edges=[];fake.requests=0;fake.failNext=false})
+beforeEach(()=>{vi.clearAllMocks();fake.events.clear();fake.nodes=[];fake.edges=[];fake.requests=0;fake.failNext=false;fake.failures=0;fake.gate=undefined;fake.cancels=0})
 async function ready(){await vi.waitFor(()=>expect(fake.nodes.length).toBeGreaterThan(0))}
 it('aggregates relationships and preserves exact link and cluster click semantics',async()=>{
  const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{}}});await ready()
@@ -141,7 +141,30 @@ it('discards a superseded asynchronous layout when switching views quickly',asyn
 
 it('clears stale topology after worker failure and offers parent-managed layout recovery',async()=>{
  const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{}}});await ready()
- fake.failNext=true;await w.setProps({mode:'chain'})
+ fake.failures=2;await w.setProps({mode:'chain'})
  await vi.waitFor(()=>expect(w.text()).toContain('自动布局暂不可用'))
  expect(fake.nodes).toHaveLength(0);await w.find('button').trigger('click');expect(w.emitted('organize')).toEqual([[]]);w.unmount()
+})
+
+it('retries a failed layout once automatically before showing the unavailable notice',async()=>{
+ const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{}}});await ready()
+ const before=fake.requests;fake.failures=1;await w.setProps({mode:'chain'})
+ await vi.waitFor(()=>expect(fake.requests).toBe(before+2));await ready()
+ expect(w.text()).not.toContain('自动布局暂不可用');expect(fake.nodes.length).toBeGreaterThan(0);w.unmount()
+})
+it('a data refresh does not restart an in-flight layout; it re-runs once after it finishes',async()=>{
+ let open!:()=>void;fake.gate=new Promise<void>(r=>{open=r})
+ const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{}}});await flushPromises()
+ expect(fake.requests).toBe(1)
+ await w.setProps({snapshot:snapshot(true)});await flushPromises();await w.setProps({snapshot:snapshot()});await w.setProps({snapshot:snapshot(true)});await flushPromises()
+ expect(fake.cancels).toBe(0);expect(fake.requests).toBe(1)
+ fake.gate=undefined;open();await vi.waitFor(()=>expect(fake.requests).toBe(2));await ready()
+ expect(fake.edges.some(e=>String(e.id).includes('ba'))||fake.nodes.length>0).toBe(true);w.unmount()
+})
+
+it('switching tabs (mode) still replaces an in-flight layout immediately',async()=>{
+ let open!:()=>void;fake.gate=new Promise<void>(r=>{open=r})
+ const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{}}});await flushPromises()
+ fake.gate=undefined;await w.setProps({mode:'chain'});await flushPromises()
+ expect(fake.cancels).toBe(1);expect(fake.requests).toBe(2);await ready();open();w.unmount()
 })

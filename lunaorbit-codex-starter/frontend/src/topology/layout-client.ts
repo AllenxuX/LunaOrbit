@@ -5,6 +5,8 @@ export interface LayoutRequest {presentation:Presentation;nodeWidth:number;nodeH
 export type LayoutResponse={ok:true;plan:LayoutPlan}|{ok:false}
 export interface LayoutTask {result:Promise<LayoutPlan>;cancel:()=>void}
 
+export const LAYOUT_TIMEOUT_MS=30000
+
 export function createLayoutTask(presentation:Presentation,nodeWidth:number,nodeHeight=76):LayoutTask {
  let cancel=()=>{}
  const result=new Promise<LayoutPlan>((resolve,reject)=>{
@@ -24,7 +26,8 @@ export function createLayoutTask(presentation:Presentation,nodeWidth:number,node
    worker.onmessage=(event:MessageEvent<LayoutResponse>)=>{if(event.data?.ok&&event.data.plan)finish(event.data.plan);else fail()}
    worker.onerror=event=>{event.preventDefault();fail()}
    worker.onmessageerror=fail
-   timeout=globalThis.setTimeout(()=>finish(undefined,new Error('拓扑布局超时，请重试')),8000)
+   // Includes worker/ELK script download, which can take 10s+ over the public link.
+   timeout=globalThis.setTimeout(()=>finish(undefined,new Error('拓扑布局超时，请重试')),LAYOUT_TIMEOUT_MS)
    worker.postMessage({presentation,nodeWidth,nodeHeight} satisfies LayoutRequest)
   } catch {fail()}
  })
@@ -32,3 +35,14 @@ export function createLayoutTask(presentation:Presentation,nodeWidth:number,node
  void result.catch(()=>{})
  return {result,cancel:()=>cancel()}
 }
+
+let warmed=false
+// Runs one tiny layout when the browser is idle so the worker and ELK engine scripts are already
+// downloaded (same URLs as real layouts) before the user opens a topology page.
+export function warmLayoutWorker(){
+ if(warmed)return
+ warmed=true
+ const idle=(globalThis as {requestIdleCallback?:(cb:()=>void)=>number}).requestIdleCallback??((cb:()=>void)=>globalThis.setTimeout(cb,2000))
+ idle(()=>{void createLayoutTask({nodes:[{id:'warm-up',kind:'kafka',label:'',replication_factor:null,rf_status:'unknown'}],edges:[]},224).result.catch(()=>{})})
+}
+export function resetWarmLayoutWorkerForTest(){warmed=false}

@@ -33,7 +33,7 @@ const loading=ref(false),message=ref('')
 let resizeObserver:InstanceType<typeof globalThis.ResizeObserver>|undefined
 let graph:Graph|undefined
 let hoveredEdge:string|undefined
-let fitEpoch=0,layoutEpoch=0,applying=false,previewFrame=0
+let fitEpoch=0,layoutEpoch=0,applying=false,previewFrame=0,pendingRefresh=false,layoutMode:unknown
 let task:LayoutTask|undefined,session:RoutingSession|undefined,plan:LayoutPlan|undefined
 const previewEdges=new Set<string>()
 const nodes=new Map<string,Node>(),edges=new Map<string,Edge>()
@@ -54,19 +54,22 @@ function syncPositions(){
 }
 async function arrange(ignoreSaved=true){
  const token=++layoutEpoch
- task?.cancel();globalThis.cancelAnimationFrame(previewFrame);previewEdges.clear();busy(true);message.value=''
- const current=presentation.value
- task=createLayoutTask(JSON.parse(JSON.stringify(current)),nodeWidth(),nodeHeight())
+ task?.cancel();globalThis.cancelAnimationFrame(previewFrame);previewEdges.clear();busy(true);message.value='';pendingRefresh=false
+ const current=presentation.value;layoutMode=props.mode
+ const run=()=>{task=createLayoutTask(JSON.parse(JSON.stringify(current)),nodeWidth(),nodeHeight());return task.result}
  try{
-  const result=await task.result
+  // One automatic retry: the second attempt usually hits the browser cache for the worker scripts.
+  const result=await run().catch((error:Error)=>{if(error.name==='AbortError'||token!==layoutEpoch)throw error;return run()})
   if(token!==layoutEpoch||!graph)return undefined
   plan=result;session=new RoutingSession(current,result)
   if(!ignoreSaved&&!props.pathNodeIds.length){try{session.applyPositions({...result.positions,...props.positions})}catch{message.value='已保存的布局存在重叠或无法布线，请整理布局后保存'}}
   draw();scheduleFit()
   return session.getPositions()
  }catch(error){if(token===layoutEpoch&&(error as Error).name!=='AbortError'){session=undefined;plan=undefined;nodes.clear();edges.clear();graph?.resetCells([]);message.value='自动布局暂不可用，请重试整理布局'};return undefined}
- finally{if(token===layoutEpoch)busy(false)}
+ finally{if(token===layoutEpoch){busy(false);if(pendingRefresh){pendingRefresh=false;void arrange(false)}}}
 }
+// Data refreshes never cancel an in-flight layout (that restarted its timer); they re-run once afterwards.
+function refreshLayout(){if(loading.value&&layoutMode===props.mode){pendingRefresh=true;return}void arrange(false)}
 function scheduleFit(){
  const instance=graph,token=++fitEpoch
  void nextTick(()=>{if(instance&&graph===instance&&token===fitEpoch)instance.zoomToFit({padding:56,maxScale:1})})
@@ -169,7 +172,7 @@ onMounted(()=>{
   resizeObserver.observe(container.value!)
  }
 })
-watch(structure,()=>{void arrange(false)})
+watch(structure,refreshLayout)
 watch(()=>props.positions,syncPositions)
 watch([()=>props.snapshot,()=>props.registrations,()=>props.nodeHints],()=>{
  for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',layered.value?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',meta(n.id,n.kind,n.linkId))}
