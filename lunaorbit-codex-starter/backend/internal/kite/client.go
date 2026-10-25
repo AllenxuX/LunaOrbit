@@ -2,6 +2,7 @@ package kite
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -144,6 +145,56 @@ func (c *HTTPClient) GetPod(ctx context.Context, cluster, ns, name string) (Docu
 	return c.query(ctx, cluster, "pods", ns, name)
 }
 
+// ClusterInfo is the read-only projection of Kite's cluster list. Kite omits
+// clusters the key cannot access, and exposes no stable cluster identifier.
+type ClusterInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Error   string `json:"error,omitempty"`
+}
+
+// ListClusters reads GET /api/v1/clusters without selecting a cluster.
+func (c *HTTPClient) ListClusters(ctx context.Context) ([]ClusterInfo, error) {
+	doc, err := c.query(ctx, "", "clusters", "", "")
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+		Error   string `json:"error"`
+	}
+	if json.Unmarshal(doc.body, &raw) != nil || raw == nil || len(raw) > 256 {
+		return nil, &Error{Code: "INVALID_RESPONSE"}
+	}
+	seen := map[string]bool{}
+	out := make([]ClusterInfo, 0, len(raw))
+	for _, r := range raw {
+		if !headerValue(r.Name) || seen[r.Name] || len(r.Version) > 64 {
+			return nil, &Error{Code: "INVALID_RESPONSE"}
+		}
+		seen[r.Name] = true
+		info := ClusterInfo{Name: r.Name, Version: r.Version}
+		if r.Error != "" {
+			info.Error = truncate(r.Error, 200)
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// ListAllDeployments reads GET /api/v1/deployments for every namespace of one cluster.
+func (c *HTTPClient) ListAllDeployments(ctx context.Context, cluster string) (Document, error) {
+	return c.query(ctx, cluster, "deployments-all", "", "")
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
 func contextError(ctx context.Context) error {
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return &Error{Code: "CANCELED"}
@@ -174,11 +225,16 @@ func statusError(status int) *Error {
 }
 
 func (c *HTTPClient) query(ctx context.Context, cluster, kind, ns, name string) (Document, error) {
-	if !headerValue(cluster) {
+	if kind != "clusters" && !headerValue(cluster) {
 		return Document{}, &Error{Code: "INVALID_ARGUMENT"}
 	}
 	path := "/api/v1/" + kind
 	switch kind {
+	case "clusters":
+		cluster = ""
+	case "deployments-all":
+		// Kite ignores the namespace for this route and returns every namespace.
+		path, kind = "/api/v1/deployments", "deployments"
 	case "namespaces":
 		path += "/_all"
 	case "configmaps", "deployments", "pods":
@@ -206,7 +262,9 @@ func (c *HTTPClient) query(ctx context.Context, cluster, kind, ns, name string) 
 			return Document{}, &Error{Code: "INVALID_CONFIG"}
 		}
 		req.Header.Set("Authorization", c.key)
-		req.Header.Set("x-cluster-name", cluster)
+		if cluster != "" {
+			req.Header.Set("x-cluster-name", cluster)
+		}
 		req.Header.Set("Accept", "application/json")
 		res, err := c.http.Do(req)
 		if err != nil {
