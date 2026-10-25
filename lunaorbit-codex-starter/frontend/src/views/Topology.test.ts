@@ -279,3 +279,9 @@ it('MM2 page: link detail starts with evidence type and keeps enablement, status
  expect(w.get('.evidence-panel').text()).not.toMatch(/×\d|已验证/)
  w.unmount()
 })
+it('MM2 page task panel counts only enabled MM2 tasks unless disabled are shown',async()=>{
+ const w=setup(false,false,'',{},'');await flushPromises()
+ expect(w.get('.task-panel').text()).toContain('1 条 MM2 任务')
+ expect(w.get('.task-panel').text()).not.toContain('个任务')
+ w.unmount()
+})
