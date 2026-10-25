@@ -7,6 +7,8 @@ export interface LayoutPlan {
  ports:Record<string,EdgeAnchors>
  /** Full orthogonal paths including both absolute port endpoints. */
  routes:Record<string,Position[]>
+ /** Space reserved by the layout engine for edge labels (absolute boxes). */
+ labels?:Record<string,Position&{width:number;height:number}>
  nodeWidth:number
  nodeHeight:number
 }

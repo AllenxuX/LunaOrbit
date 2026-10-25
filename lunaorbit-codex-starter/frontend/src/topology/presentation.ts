@@ -1,7 +1,7 @@
 import type { GraphNode, Link, Position, Snapshot } from '../api/topology'
 
 export type TopologyMode='relations'|'deployment'|'chain'
-export interface PresentationEdge {id:string;source:string;target:string;linkIds:string[];state:'verified'|'unverified'|'unknown'|'disabled';stale:boolean}
+export interface PresentationEdge {id:string;source:string;target:string;linkIds:string[];state:'verified'|'unverified'|'unknown'|'disabled';stale:boolean;label?:string}
 export type PresentationNode=GraphNode&{linkId?:string}
 export interface Presentation {nodes:PresentationNode[];edges:PresentationEdge[]}
 
