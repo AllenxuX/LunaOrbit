@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# LunaOrbit web: Vue build served by nginx; /api and /healthz go to the API on loopback in the same Pod,
+# and a loopback-only server forwards Kite (the API accepts only https or loopback http for Kite).
+# docker buildx build --platform linux/amd64,linux/arm64 -f deploy/docker/Dockerfile.web -t <registry>/lunaorbit-web:<tag> .
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
+WORKDIR /src
+RUN corepack enable
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY frontend/ ./
+RUN pnpm build
+
+FROM nginx:1.27-alpine
+COPY --from=build /src/dist/ /usr/share/nginx/html/
+COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+# Rendered at start by the nginx image's envsubst step; only these variables are substituted.
+ENV NGINX_ENVSUBST_FILTER="^(API_UPSTREAM|KITE_UPSTREAM)$" API_UPSTREAM=127.0.0.1:8081 KITE_UPSTREAM=kite.kite-system.svc.cluster.local:8080
+EXPOSE 8088
