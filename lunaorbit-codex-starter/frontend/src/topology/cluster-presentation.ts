@@ -108,7 +108,9 @@ export function relationCounts(snapshot:Snapshot):{enabled:number;disabled:numbe
 
 type EvidenceLink=Pick<Snapshot['links'][number],'declared'|'observed'|'verified'|'state'|'enabled'|'stale'>
 /** Evidence source only; enablement, runtime status and freshness are separate facts. */
-export function evidenceType(link:EvidenceLink,manuallyConfirmed=false):string {return manuallyConfirmed?'人工确认':link.observed?'运行观测':'配置关系（未验证）'}
+// `observed` only means the MM2 Deployment/Pods were found (resource state), not that messages flowed.
+// The snapshot has no runtime metrics; only a verified replication counts as runtime evidence.
+export function evidenceType(link:EvidenceLink,manuallyConfirmed=false):string {return manuallyConfirmed?'人工确认':link.verified?'运行观测':'配置关系（未验证）'}
 export function linkFacts(link:EvidenceLink,snapshotStale:boolean):{enablement:string;status:string;freshness:string} {
  return {enablement:isDisabledLink(link)?'已禁用':'启用',status:link.verified&&link.observed?'已验证':'状态未知',freshness:snapshotStale||link.stale?'数据已过期':'当前'}
 }

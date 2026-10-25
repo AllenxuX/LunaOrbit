@@ -151,7 +151,9 @@ describe('evidence wording',()=>{
   const {evidenceType,linkFacts}=await import('./cluster-presentation')
   const link={declared:true,observed:false,verified:false,state:'declared',enabled:true,stale:false}
   expect(evidenceType(link)).toBe('配置关系（未验证）')
-  expect(evidenceType({...link,observed:true})).toBe('运行观测')
+  // Real snapshot shape: config declared, Deployment ready (observed), replication not verified.
+  expect(evidenceType({declared:true,observed:true,verified:false,state:'unknown',enabled:true,stale:false})).toBe('配置关系（未验证）')
+  expect(evidenceType({...link,observed:true,verified:true})).toBe('运行观测')
   expect(evidenceType(link,true)).toBe('人工确认')
   expect(linkFacts(link,false)).toEqual({enablement:'启用',status:'状态未知',freshness:'当前'})
   expect(linkFacts(link,true).freshness).toBe('数据已过期')
