@@ -6,6 +6,7 @@ import { kafkaList, type Topic } from '../api/kafkaops'
 import { readLineage, observedTime, evidenceLabel, kindLabel, resourcePath, type Direction, type Lineage, type LineageNode } from '../api/topic-lineage'
 import { cacheKey, classifyCandidate, syncCoverage, classifyLineage, collapseLineage, conditionsChanged, pickDisplayGraph, resolveSources, type NodeState, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
 import TopicLineageCanvas from '../components/TopicLineageCanvas.vue'
+import { fullName } from '../topology/scopes'
 type ViewEdge=LineageView['edges'][number]
 interface Discovery {stale:boolean;observedAt:string;links:RuleLink[]}
 const route=useRoute(),router=useRouter()
@@ -18,7 +19,12 @@ const form=computed<Conditions>(()=>({cluster:cluster.value,topic:topic.value.tr
 const changed=computed(()=>conditionsChanged(applied.value,form.value))
 const display=computed(()=>discovery.value?pickDisplayGraph({current:data.value,cached:cached.value,snapshotStale:discovery.value.stale}):{graph:data.value,banner:'',notice:''})
 const unparsedIssues=computed(()=>(data.value?.issues??[]).filter(i=>i.code==='FILTER_UNKNOWN'||i.code==='SEMANTICS_UNKNOWN'))
-const view=computed(()=>{if(!display.value.graph)return undefined;const v=collapseLineage(display.value.graph,{showConsumers:showConsumers.value}),ids=new Set(unparsedIssues.value.map(i=>i.link_id));return ids.size?{...v,edges:v.edges.map(e=>e.linkId&&ids.has(e.linkId)?{...e,label:`${e.label} · 待确认`}:e)}:v})
+// Several K8s scopes: MM2 labels carry "K8s / namespace / name" so same names never look alike.
+const ruleById=computed(()=>new Map((discovery.value?.links??[]).map(l=>[l.id,l])))
+const multiScope=computed(()=>new Set((discovery.value?.links??[]).filter(l=>l.k8s_cluster).map(l=>`${l.k8s_cluster}/${l.namespace}`)).size>1)
+function scopedLabel(e:ViewEdge){const r=e.linkId?ruleById.value.get(e.linkId):undefined;return r&&multiScope.value&&r.k8s_cluster&&e.label?e.label.replace(/^.*? · /,fullName({k8s_cluster:r.k8s_cluster,namespace:r.namespace??'',workload_name:r.workload_name})+' · '):e.label}
+const mm2Path=(linkId:string)=>{const scope=ruleById.value.get(linkId)?.scope_id;return scope?`/topology/${encodeURIComponent(scope)}/links/${encodeURIComponent(linkId)}`:'/topology?view=mm2'}
+const view=computed(()=>{if(!display.value.graph)return undefined;const v=collapseLineage(display.value.graph,{showConsumers:showConsumers.value}),ids=new Set(unparsedIssues.value.map(i=>i.link_id));return {...v,edges:v.edges.map(e=>{const label=scopedLabel(e);return e.linkId&&ids.has(e.linkId)?{...e,label:`${label} · 待确认`}:{...e,label}})}})
 const showAllTopics=ref(false)
 const candidates=computed(()=>topics.value.map(name=>{const links=discovery.value?.links;if(!links)return {name,kind:'syncing',label:'同步配置覆盖 —'};const c=classifyCandidate(cluster.value,name,links);if(c.kind!=='syncing')return {name,kind:c.kind,label:c.tag};const n=syncCoverage(cluster.value,name,links);return {name,kind:c.kind,label:n===undefined?'同步配置覆盖 —':n===0?'无下游同步配置':`同步配置覆盖 ${n} 个集群`}}))
 const shownCandidates=computed(()=>candidates.value.filter(c=>showAllTopics.value||c.kind==='syncing'))
@@ -42,10 +48,10 @@ async function loadTopics(){
 }
 function checkTopic(){if(topicState.value==='unreadable'||topicState.value==='loading')return;topicState.value=!topic.value.trim()?'unknown':topics.value.includes(topic.value.trim())?'exists':'missing'}
 async function readDiscovery():Promise<Discovery>{
- const scopes=await registryRequest<{items:{id:string;synthetic:boolean}[]}>('/discovery/scopes')
+ const scopes=await registryRequest<{items:{id:string;synthetic:boolean;k8s_cluster?:string;removed?:boolean}[]}>('/discovery/scopes')
  const result:Discovery={stale:false,observedAt:'',links:[]}
  for(const s of scopes.items.filter(x=>!x.synthetic)){
-  try{const r=await registryRequest<{snapshot:{stale:boolean;observed_at:string;links:RuleLink[]}}>(`/discovery/scopes/${encodeURIComponent(s.id)}/snapshot?page_size=100`);result.stale||=r.snapshot.stale;result.observedAt=r.snapshot.observed_at;result.links.push(...(r.snapshot.links??[]))}
+  try{const r=await registryRequest<{snapshot:{stale:boolean;observed_at:string;links:RuleLink[]}}>(`/discovery/scopes/${encodeURIComponent(s.id)}/snapshot?page_size=100`);result.stale||=r.snapshot.stale;result.observedAt=r.snapshot.observed_at;result.links.push(...(r.snapshot.links??[]).map(l=>({...l,scope_id:s.id,k8s_cluster:l.k8s_cluster??s.k8s_cluster})))}
   catch{result.stale=true}
  }
  return result
@@ -120,7 +126,7 @@ onBeforeUnmount(()=>{++epoch;++catalogEpoch;request?.abort();globalThis.clearTim
         <aside v-if="selectedNode || selectedEdge" class="lineage-detail panel" aria-label="链路详情">
           <button class="detail-close" aria-label="关闭链路详情" @click="selectedNode=undefined;selectedEdge=undefined">关闭</button>
           <template v-if="selectedNode"><h2>{{ kindLabel(selectedNode.kind) }}</h2><h3>{{ selectedNode.cluster_name }} / {{ selectedNode.topic??selectedNode.label }}</h3><dl><template v-if="selectedNode.kind==='topic'"><dt>Topic 存在性</dt><dd>{{ existence(selectedNode) }}</dd></template><template v-if="selectedNode.owner"><dt>负责人</dt><dd>{{ selectedNode.owner }}</dd></template><dt>Topic 元数据时间</dt><dd>{{ observedTime(selectedNode.observed_at) }}</dd></dl><router-link v-if="selectedPath" :to="selectedPath">查看资源详情</router-link><button v-if="selectedNode.kind==='topic' && selectedNode.cluster_id" @click="asRoot(selectedNode)">以此 Topic 为根</button></template>
-          <template v-else-if="selectedEdge"><h2>关系详情</h2><h3>{{ nodeName(selectedEdge.source) }} → {{ nodeName(selectedEdge.target) }}</h3><dl data-edge-facts><dt>证据类型</dt><dd data-edge-evidence>{{ evidenceLabel(selectedEdge.evidence) }}</dd><dt>运行状态</dt><dd>状态未知</dd><dt>新鲜度</dt><dd data-edge-freshness>{{ edgeFreshness }}</dd><template v-if="selectedEdge.linkId"><dt>MM2 任务</dt><dd><router-link data-edge-mm2 :to="`/topology/${encodeURIComponent(selectedEdge.scope_id??'readonly-lab')}/links/${encodeURIComponent(selectedEdge.linkId)}`">{{ selectedEdge.label }}</router-link> · <router-link to="/topology?view=mm2">在 MM2 拓扑查看</router-link></dd></template><template v-if="selectedEdge.policy"><dt>命名策略</dt><dd>{{ selectedEdge.policy }}</dd></template><template v-if="selectedEdge.rule"><dt>匹配规则</dt><dd>{{ selectedEdge.rule }}</dd></template><template v-if="selectedEdge.account"><dt>Kafka 账号</dt><dd>{{ selectedEdge.account }}</dd></template><dt>配置采集时间</dt><dd>{{ observedTime(selectedEdge.observed_at) }}</dd></dl></template>
+          <template v-else-if="selectedEdge"><h2>关系详情</h2><h3>{{ nodeName(selectedEdge.source) }} → {{ nodeName(selectedEdge.target) }}</h3><dl data-edge-facts><dt>证据类型</dt><dd data-edge-evidence>{{ evidenceLabel(selectedEdge.evidence) }}</dd><dt>运行状态</dt><dd>状态未知</dd><dt>新鲜度</dt><dd data-edge-freshness>{{ edgeFreshness }}</dd><template v-if="selectedEdge.linkId"><dt>MM2 任务</dt><dd><router-link data-edge-mm2 :to="mm2Path(selectedEdge.linkId)">{{ selectedEdge.label }}</router-link> · <router-link to="/topology?view=mm2">在 MM2 拓扑查看</router-link></dd></template><template v-if="selectedEdge.policy"><dt>命名策略</dt><dd>{{ selectedEdge.policy }}</dd></template><template v-if="selectedEdge.rule"><dt>匹配规则</dt><dd>{{ selectedEdge.rule }}</dd></template><template v-if="selectedEdge.account"><dt>Kafka 账号</dt><dd>{{ selectedEdge.account }}</dd></template><dt>配置采集时间</dt><dd>{{ observedTime(selectedEdge.observed_at) }}</dd></dl></template>
         </aside>
       </div>
       <details v-if="view" class="lineage-accessible"><summary>节点与关系列表</summary><div><button v-for="node in view.nodes" :key="node.id" :data-lineage-node="node.id" @click="selectedNode=node;selectedEdge=undefined">{{ kindLabel(node.kind) }}：{{ node.cluster_name }} / {{ node.topic??node.label }}</button></div><div><button v-for="edge in view.edges" :key="edge.id" :data-lineage-edge="edge.id" @click="selectedEdge=edge;selectedNode=undefined">{{ nodeName(edge.source) }} → {{ nodeName(edge.target) }}{{ edge.label?'：'+edge.label:'' }}</button></div></details>

@@ -11,7 +11,7 @@ function chain(pairs:[string,string,string][],extra:Lineage['nodes']=[]):Lineage
  for(const n of extra)nodes.set(n.id,n)
  return {root_id:`topic:${pairs[0]?.[0]??'a'}:orders`,observed_at:'2026-10-25T10:05:00Z',nodes:[...nodes.values()],edges,issues:[],truncated:false,depth:2}
 }
-const rule=(p:Partial<RuleLink>):RuleLink=>({id:'L1',workload_name:'mm2-a-b',enabled:true,topics_raw:'.*',topics_exclude_raw:'',source:{registration_id:'a',status:'confirmed'},target:{registration_id:'b',status:'confirmed'},semantics_known:true,stale:false,...p})
+const rule=(p:Partial<RuleLink>):RuleLink=>({id:'L1',workload_name:'mm2-a-b',enabled:true,topics_raw:'.*',topics_exclude_raw:'',source:{registration_id:'a',status:'confirmed'},target:{registration_id:'b',status:'confirmed'},semantics_known:true,stale:false,scope_id:'readonly-lab',...p})
 
 describe('collapse MM2 into labelled edges',()=>{
  it('one edge per MM2 between two topic nodes, label = task name + policy, same-name topics in different clusters stay separate',()=>{
@@ -237,5 +237,13 @@ describe('LUNA-31B candidates and wording',()=>{
   expect(u.title).toBe('5 个同步任务的规则无法解析');expect(u.groups).toHaveLength(3);expect(u.more).toBe(2)
   const g=u.groups![0]!;expect(g.task).toBe('task-L1');expect(g.where).toContain('(?<n>x)');expect(g.impact).toBe('结果可能不完整，不代表没有同步。');expect(g.to).toBe('/topology/readonly-lab/links/L1')
   expect(r.filter(x=>x.kind==='unparsed')).toHaveLength(1)
+ })
+})
+
+describe('scope-aware MM2 links (LUNA-37)',()=>{
+ it('reason links point at the rule\'s own scope, never a fixed readonly-lab',()=>{
+  const r=classifyLineage({cluster:'a',topic:'x.replica',depth:2,direction:'both',snapshotStale:false,result:{...chain([]),root_id:'topic:a:x.replica',nodes:[T('a','x.replica')]},links:[rule({topics_exclude_raw:'.*\\.replica',scope_id:'k8s-b'})]})
+  expect(r[0]!.actions[0]!.to).toBe('/topology/k8s-b/links/L1')
+  expect(JSON.stringify(r)).not.toContain('readonly-lab')
  })
 })
