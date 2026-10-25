@@ -5,7 +5,7 @@ import type { Snapshot,Position } from '../api/topology'
 import { nodeIdentity,type RegistrationIdentity } from '../topology/model'
 import { focusPresentation,type PresentationEdge } from '../topology/presentation'
 import { applyScaleRules,labelBudget,type ClusterMeta } from '../topology/scale-rules'
-import { clusterNodeHeight,clusterNodeWidth,labelDistance,middleEllipsis,presentationFor,type CanvasMode } from '../topology/cluster-presentation'
+import { clusterNodeHeight,clusterNodeWidth,labelDistance,lineage,middleEllipsis,presentationFor,type CanvasMode } from '../topology/cluster-presentation'
 import { createLayoutTask,type LayoutTask } from '../topology/layout-client'
 import { RoutingSession } from '../topology/stable-routing'
 import type { LayoutPlan,RoutingUpdate } from '../topology/routing-types'
@@ -75,7 +75,7 @@ function name(id:string){const node=presentation.value.nodes.find(n=>n.id===id);
 function meta(id:string,kind:string,linkId?:string){if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
 function overlays(){
  if(!graph)return
- const focus=props.focusNodeId?focusPresentation(presentation.value,props.focusNodeId,props.focusDirection):undefined
+ const focus=props.focusNodeId?props.mode==='clusters'?(r=>({nodeIds:[props.focusNodeId!,...r.upstream,...r.downstream],edgeIds:r.edgeIds}))(lineage(presentation.value,props.focusNodeId)):focusPresentation(presentation.value,props.focusNodeId,props.focusDirection):undefined
  const selected=new Set(props.selectedLinkIds??[])
  const selectedEdges=presentation.value.edges.filter(e=>e.linkIds.some(id=>selected.has(id)))
  const activeNodes=new Set(selectedEdges.flatMap(e=>[e.source,e.target]))

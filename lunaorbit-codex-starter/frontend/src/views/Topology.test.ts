@@ -109,7 +109,7 @@ it('gives the initial canvas full width and opens the details column only after 
 it('defaults to relationship view and switches deployment without losing layout drafts',async()=>{
  const w=setup();await flushPromises()
  const canvas=w.findComponent({name:'TopologyCanvas'})
- expect(canvas.props('mode')).toBe('relations')
+ expect(canvas.props('mode')).toBe('clusters')
  await w.get('[data-move]').trigger('click')
  await w.get('[data-mode="tasks"]').trigger('click')
  expect(w.find('[data-canvas]').exists()).toBe(false)
@@ -118,14 +118,14 @@ it('defaults to relationship view and switches deployment without losing layout 
  expect(canvas.props('positions').source).toEqual({x:200,y:300})
  w.unmount()
 })
-it('focuses a node without selecting an arbitrary link and supports direction changes',async()=>{
+it('focuses a node, shows the full upstream/downstream lineage and clears with 显示全部',async()=>{
  const w=setup();await flushPromises()
  const canvas=w.findComponent({name:'TopologyCanvas'})
  canvas.vm.$emit('selectNode','source');await flushPromises()
  expect(canvas.props('focusNodeId')).toBe('source')
  expect(w.find('.evidence-panel').exists()).toBe(false)
- await w.get('[data-focus-direction]').setValue('downstream')
- expect(canvas.props('focusDirection')).toBe('downstream')
+ expect(w.get('[data-lineage-counts]').text()).toBe('全部上游 0 个集群 · 全部下游 1 个集群')
+ expect(w.find('[data-focus-direction]').exists()).toBe(false)
  await w.get('[data-clear-focus]').trigger('click')
  expect(canvas.props('focusNodeId')).toBe('')
  w.unmount()
@@ -218,7 +218,7 @@ it('saves the actual arranged positions returned by the canvas and preserves oth
  expect(body.positions['relations:source']).toEqual({x:24,y:24});expect(body.positions['relations:target']).toEqual({x:400,y:24});expect(body.positions['chain:source']).toEqual({x:9,y:9});w.unmount()
 })
 
-it('MM2 topology counts enabled links, toggles disabled links and shows direct upstream/downstream counts',async()=>{
+it('MM2 topology counts enabled links, toggles disabled links and shows full lineage counts',async()=>{
  const w=setup(false,false,'',{},'');await flushPromises()
  expect(w.text()).toContain('2 个集群 · 1 条启用链路')
  expect(w.text()).toContain('显示禁用链路（0）')
@@ -227,12 +227,20 @@ it('MM2 topology counts enabled links, toggles disabled links and shows direct u
  await w.get('[data-show-disabled]').setValue(true)
  expect(canvas.props('showDisabled')).toBe(true)
  canvas.vm.$emit('selectNode','target');await flushPromises()
- expect(w.get('[data-direct-counts]').text()).toBe('直接上游 1 · 直接下游 0')
+ expect(w.get('[data-lineage-counts]').text()).toBe('全部上游 1 个集群 · 全部下游 0 个集群')
  w.unmount()
 })
 
 it('passes registered environment and room per cluster for scale grouping',async()=>{
  const w=setup(false,true,'',{},'');await flushPromises()
  expect(w.findComponent({name:'TopologyCanvas'}).props('groupMeta')).toEqual({source:{environment:'test',room:'lab'}})
+ w.unmount()
+})
+
+it('both graph tabs use the cluster layered layout',async()=>{
+ const w=setup(false,false,'',{},'relations');await flushPromises()
+ expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
+ await w.get('[data-mode="mm2"]').trigger('click')
+ expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
  w.unmount()
 })

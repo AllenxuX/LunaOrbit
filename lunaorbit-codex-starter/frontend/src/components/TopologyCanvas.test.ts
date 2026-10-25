@@ -96,6 +96,15 @@ it('clusters mode shows at most 12 labels while focusing and says how many are s
  const labelled=fake.edges.filter(e=>JSON.stringify(e.setLabels.mock.calls.at(-1)).includes('mm2-'))
  expect(labelled.length).toBe(12);w.unmount()
 })
+it('clusters mode focus highlights the whole upstream and downstream lineage and dims the rest',async()=>{
+ const {currentLab}=await import('../topology/fixtures')
+ const w=mount(TopologyCanvas,{props:{snapshot:currentLab(),positions:{},mode:'clusters',focusNodeId:'k3'}});await ready()
+ const opacity=(id:string)=>fake.nodes.find(n=>n.id===id)!.attr.mock.calls.filter(c=>c[0]==='body/opacity').at(-1)?.[1]
+ for(const id of ['k1','k3','k6','k8','k9'])expect(opacity(id)).toBe(1)
+ for(const id of ['k2','k4','k5','k7'])expect(opacity(id)).toBe(0.3)
+ const lit=fake.edges.filter(e=>e.attr.mock.calls.filter(c=>c[0]==='line/opacity').at(-1)?.[1]===1).map(e=>(e.data as {source:string;target:string})).map(e=>e.source+'>'+e.target).sort()
+ expect(lit).toEqual(['k1>k3','k3>k6','k6>k8','k8>k9']);w.unmount()
+})
 it('rejects incompatible saved coordinates with a visible recovery action',async()=>{
  const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{a:{x:0,y:0},b:{x:0,y:0}}}});await ready()
  expect(w.text()).toContain('已保存的布局存在重叠');expect(w.find('button').text()).toBe('重新整理');w.unmount()

@@ -12,7 +12,7 @@ import { readSnapshot,scopePath,viewPath,type Snapshot,type View,type Position,t
 import { filterGraph,linkStatus,mappingLabel,mappingName,nodeIdentity,unknown } from '../topology/model'
 
 import { buildPresentation,focusPresentation,tracePaths } from '../topology/presentation'
-import { buildClusterPresentation,directNeighbors,isDisabledLink,presentationFor } from '../topology/cluster-presentation'
+import { buildClusterPresentation,isDisabledLink,lineage,presentationFor } from '../topology/cluster-presentation'
 import { emptyLocalView, readLocalView, saveLocalView } from '../topology/local-view'
 
 const route=inject(routeLocationKey,undefined)
@@ -61,10 +61,11 @@ const focusDirection=ref<'neighbors'|'upstream'|'downstream'>('neighbors'),route
 const savedPositions=ref<Record<string,Position>>({})
 const routeChoices=computed(()=>visible.value?.links.filter(link=>routeLinkIds.value.includes(link.id))??[])
 const pathSource=shallowRef(''),pathTarget=shallowRef(''),pathKey=shallowRef('')
-const graphMode=computed(()=>mode.value==='relations'?'relations':'clusters')
+// Both graph tabs share the generic cluster layout; saved positions stay keyed per tab.
+const graphMode=computed(()=>'clusters' as const)
 const clusterGraph=computed(()=>visible.value?buildClusterPresentation(visible.value):undefined)
 const disabledCount=computed(()=>snapshot.value?filterGraph(snapshot.value,clusters.value,filters.value,{kafka:true,workloads:true},true).links.filter(isDisabledLink).length:0)
-const directCounts=computed(()=>clusterGraph.value&&selectedNode.value?directNeighbors(clusterGraph.value,selectedNode.value):undefined)
+const lineageCounts=computed(()=>{if(!clusterGraph.value||!selectedNode.value)return undefined;const r=lineage(clusterGraph.value,selectedNode.value);return {upstream:r.upstream.length,downstream:r.downstream.length}})
 const chainGraph=computed(()=>visible.value?buildPresentation(visible.value,'chain'):undefined)
 const pathNodes=computed(()=>visible.value?.nodes.filter(n=>n.kind==='kafka').map(n=>({id:n.id,name:nodeIdentity(visible.value!,n.id,clusters.value)}))??[])
 const pathResults=computed(()=>chainGraph.value?tracePaths(chainGraph.value,pathSource.value,pathTarget.value):{paths:[],truncated:false})
@@ -75,7 +76,7 @@ function choosePath(){selected.value='';selectedNode.value='';routeLinkIds.value
 watch([pathSource,pathTarget],()=>{pathKey.value='';choosePath()})
 
 const focusName=computed(()=>snapshot.value&&selectedNode.value?nodeIdentity(snapshot.value,selectedNode.value,clusters.value):'')
-function layoutKey(id:string){return graphMode.value+':'+id}
+function layoutKey(id:string){return (mode.value==='relations'?'relations':graphMode.value)+':'+id}
 function restorePositions(){
  if(!visible.value)return
  positions.value=Object.fromEntries(presentationFor(visible.value,graphMode.value,includeDisabled.value).nodes.filter(n=>savedPositions.value[layoutKey(n.id)]).map(n=>[n.id,savedPositions.value[layoutKey(n.id)]!]))
@@ -208,12 +209,12 @@ async function confirmMapping(alias:string){
       <label>机房 <select v-model="filters.room" aria-label="机房筛选" @change="dirty=true;selected='' "><option value="">全部</option><option :value="unknown">未知 / 待确认</option><option v-for="r in rooms" :key="r" :value="r">{{ r }}</option></select></label>
       <label>环境 <select v-model="filters.environment" aria-label="环境筛选" @change="dirty=true;selected='' "><option value="">全部</option><option :value="unknown">未知 / 待确认</option><option v-for="e in environments" :key="e" :value="e">{{ e }}</option></select></label>
       <button class="button-primary toolbar-refresh" data-discover :disabled="busy||!scope||runtime?.capabilities.discovery!==true" @click="discover">{{ busy?'刷新中…':'刷新' }}</button>
-      <details class="topology-more"><summary>更多<span v-if="dirty" class="dirty-dot" aria-label="有未保存改动"></span></summary><div class="more-menu"><label><input v-model="includeDisabled" data-show-disabled type="checkbox"> {{ mode==='mm2'?`显示禁用链路（${disabledCount}）`:'显示禁用关系' }}</label><button v-if="mode==='relations'||mode==='mm2'" :disabled="busy||layoutBusy||!!chosenPath" @click="reset">整理布局</button><button data-save :disabled="busy||!dirty" @click="save">保存个人布局</button><button :disabled="busy||!scope" @click="reload">重新加载视图{{ dirty?'（丢弃未保存改动）':'' }}</button><span class="helper-text">{{ dirty?'有未保存改动':`布局版本 ${revision}` }}</span><label v-if="runtime?.mode==='mock'">Mock 场景 <select v-model="scenario" :disabled="busy"><option value="success">成功采集</option><option value="partial_failure">部分失败</option><option value="unavailable">服务不可用</option></select></label></div></details>
+      <details class="topology-more"><summary>更多<span v-if="dirty" class="dirty-dot" aria-label="有未保存改动"></span></summary><div class="more-menu"><label><input v-model="includeDisabled" data-show-disabled type="checkbox"> {{ mode==='mm2'||mode==='relations'?`显示禁用链路（${disabledCount}）`:'显示禁用关系' }}</label><button v-if="mode==='relations'||mode==='mm2'" :disabled="busy||layoutBusy||!!chosenPath" @click="reset">整理布局</button><button data-save :disabled="busy||!dirty" @click="save">保存个人布局</button><button :disabled="busy||!scope" @click="reload">重新加载视图{{ dirty?'（丢弃未保存改动）':'' }}</button><span class="helper-text">{{ dirty?'有未保存改动':`布局版本 ${revision}` }}</span><label v-if="runtime?.mode==='mock'">Mock 场景 <select v-model="scenario" :disabled="busy"><option value="success">成功采集</option><option value="partial_failure">部分失败</option><option value="unavailable">服务不可用</option></select></label></div></details>
     </div>
     <template v-if="ready&&snapshot&&visible">
       <div v-if="mode==='relations'||mode==='mm2'" ref="graphShell" class="topology-workspace panel">
-        <div class="graph-topline"><div class="topology-legend" aria-label="链路状态图例"><span class="legend-verified">已验证</span><span class="legend-unverified">未验证</span><span class="legend-unknown">状态未知</span><span class="legend-stale">过期 / 禁用</span></div><span class="helper-text">{{ visible.nodes.filter(n=>n.kind==='kafka').length }} 个集群 · {{ mode==='mm2'?`${clusterGraph?.edges.length??0} 条启用链路`:`${visible.links.length} 个任务` }}</span></div>
-        <div v-if="selectedNode" class="focus-controls"><strong>{{ focusName }}</strong><span v-if="mode==='mm2'&&directCounts" data-direct-counts>直接上游 {{ directCounts.upstream }} · 直接下游 {{ directCounts.downstream }}</span><select v-model="focusDirection" data-focus-direction aria-label="聚焦范围"><option value="neighbors">直接关联</option><option value="upstream">全部上游</option><option value="downstream">全部下游</option></select><button data-clear-focus @click="clearSelection">显示全部</button></div>
+        <div class="graph-topline"><div class="topology-legend" aria-label="链路状态图例"><span class="legend-verified">已验证</span><span class="legend-unverified">未验证</span><span class="legend-unknown">状态未知</span><span class="legend-stale">过期 / 禁用</span></div><span class="helper-text">{{ visible.nodes.filter(n=>n.kind==='kafka').length }} 个集群 · {{ clusterGraph?.edges.length??0 }} 条启用链路</span></div>
+        <div v-if="selectedNode" class="focus-controls"><strong>{{ focusName }}</strong><span v-if="lineageCounts" data-lineage-counts>全部上游 {{ lineageCounts.upstream }} 个集群 · 全部下游 {{ lineageCounts.downstream }} 个集群</span><button data-clear-focus @click="clearSelection">显示全部</button></div>
         <div v-if="mode==='mm2'" class="path-controls" aria-label="配置路径追踪"><span title="仅表示启用任务的集群连接关系，Topic 是否连续匹配需逐段确认">配置路径</span><select v-model="pathSource" data-path-source aria-label="路径起点"><option value="">选择起点</option><option v-for="node in pathNodes" :key="node.id" :value="node.id">{{ node.name }}</option></select><span>→</span><select v-model="pathTarget" data-path-target aria-label="路径终点"><option value="">选择终点</option><option v-for="node in pathNodes" :key="node.id" :value="node.id">{{ node.name }}</option></select><select v-if="pathResults.paths.length" v-model="pathKey" data-path-choice aria-label="选择配置路径" @change="choosePath"><option value="">选择路径（{{ pathResults.paths.length }}）</option><option v-for="(path,index) in pathResults.paths" :key="path.key" :value="path.key">{{ index+1 }}. {{ pathName(path.nodeIds) }} · {{ path.linkIds.length }} 段任务</option></select><span v-else-if="pathSource&&pathTarget" class="helper-text">{{ pathSource===pathTarget?'请选择不同的起点和终点':'未找到启用的配置路径' }}</span><button v-if="chosenPath" data-clear-path @click="clearSelection">返回全图</button><span v-if="pathResults.truncated" class="helper-text">路径结果已截断，请缩小范围</span></div>
         <TopologyCanvas ref="canvas" :snapshot="visible" :positions="positions" :mode="graphMode" :show-disabled="includeDisabled" :group-meta="groupMeta" :path-node-ids="chosenPath?.nodeIds" :selected-link-ids="selectedLinkIds" :focus-node-id="selectedNode" :focus-direction="focusDirection" :registrations="clusters" :node-hints="locationHints" :affected-nodes="affectedNodes" :confirmed-links="confirmedLinks" @organize="reset" @layout-busy="layoutBusy=$event" @move="move" @select="selectLink" @select-links="selectLinks" @select-node="selectNode" @clear="clearSelection" />
         <p v-if="!visible.nodes.length" class="empty-graph">当前筛选下没有同步关系</p>
