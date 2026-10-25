@@ -76,6 +76,26 @@ it('clusters mode truncates long cluster names in the middle and keeps the full 
  const attrs=JSON.stringify(fake.nodes.find(n=>n.id===long)!.attrs)
  const node=fake.nodes.find(n=>n.id===long)! as unknown as {attrs:{label:{text:string};title:{text:string}}};expect(node.attrs.label.text.length).toBe(18);expect(node.attrs.label.text).toContain('…');expect(node.attrs.title.text).toContain(long);expect(attrs).toContain(long);w.unmount()
 })
+it('clusters mode folds large graphs into group cards and expands a group on click',async()=>{
+ const {generatedLarge}=await import('../topology/fixtures')
+ const {snapshot,meta}=generatedLarge(40,60,11)
+ const w=mount(TopologyCanvas,{props:{snapshot,positions:{},mode:'clusters',groupMeta:meta}});await ready()
+ expect(fake.nodes.length).toBe(5)
+ const group=fake.nodes.find(n=>n.id.startsWith('group:'))!
+ expect(JSON.stringify((group as unknown as {attrs:unknown}).attrs)).toMatch(/集群 \d+ · 组内 MM2 \d+/)
+ expect(w.text()).toContain('分组总览')
+ fake.events.get('node:click')?.({node:group});expect(w.emitted('selectNode')).toBeUndefined()
+ await vi.waitFor(()=>expect(fake.nodes.length).toBeGreaterThan(5));w.unmount()
+})
+it('clusters mode shows at most 12 labels while focusing and says how many are shown',async()=>{
+ const {snapshotFromRows}=await import('../topology/fixtures')
+ const targets=Array.from({length:15},(_,i)=>'t'+String(i).padStart(2,'0'))
+ const s=snapshotFromRows(['h',...targets],targets.map(t=>['h-'+t,'h',t,'mm2-'+t]))
+ const w=mount(TopologyCanvas,{props:{snapshot:s,positions:{},mode:'clusters',focusNodeId:'h'}});await ready()
+ await vi.waitFor(()=>expect(w.text()).toContain('已显示 12/15 个标签'))
+ const labelled=fake.edges.filter(e=>JSON.stringify(e.setLabels.mock.calls.at(-1)).includes('mm2-'))
+ expect(labelled.length).toBe(12);w.unmount()
+})
 it('rejects incompatible saved coordinates with a visible recovery action',async()=>{
  const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{a:{x:0,y:0},b:{x:0,y:0}}}});await ready()
  expect(w.text()).toContain('已保存的布局存在重叠');expect(w.find('button').text()).toBe('重新整理');w.unmount()

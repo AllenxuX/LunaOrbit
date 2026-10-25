@@ -2,7 +2,7 @@ import { flushPromises,mount } from '@vue/test-utils'
 import { afterEach,expect,it,vi } from 'vitest'
 import Topology from './Topology.vue'
 import { routeLocationKey } from 'vue-router'
-vi.mock('../components/TopologyCanvas.vue',()=>({default:{props:['snapshot','positions','mode','focusNodeId','focusDirection','selectedLinkIds','showDisabled'],emits:['move','select','selectNode','selectLinks'],methods:{fit(){},async arrange(){return {source:{x:24,y:24},target:{x:400,y:24}}}},template:'<div data-canvas><button data-move @click="$emit(\'move\',\'source\',{x:200,y:300})">drag</button></div>'}}))
+vi.mock('../components/TopologyCanvas.vue',()=>({default:{props:['snapshot','positions','mode','focusNodeId','focusDirection','selectedLinkIds','showDisabled','groupMeta'],emits:['move','select','selectNode','selectLinks'],methods:{fit(){},async arrange(){return {source:{x:24,y:24},target:{x:400,y:24}}}},template:'<div data-canvas><button data-move @click="$emit(\'move\',\'source\',{x:200,y:300})">drag</button></div>'}}))
 const testRuntime=vi.hoisted(()=>({value:{mode:'mock',capabilities:{discovery:true,observability:false}}}))
 vi.mock('../composables/useRuntime',async()=>{const {ref}=await import('vue');return {useRuntime:()=>({runtime:ref(testRuntime.value)})}})
 afterEach(()=>{vi.unstubAllGlobals();testRuntime.value.mode='mock'})
@@ -228,5 +228,11 @@ it('MM2 topology counts enabled links, toggles disabled links and shows direct u
  expect(canvas.props('showDisabled')).toBe(true)
  canvas.vm.$emit('selectNode','target');await flushPromises()
  expect(w.get('[data-direct-counts]').text()).toBe('直接上游 1 · 直接下游 0')
+ w.unmount()
+})
+
+it('passes registered environment and room per cluster for scale grouping',async()=>{
+ const w=setup(false,true,'',{},'');await flushPromises()
+ expect(w.findComponent({name:'TopologyCanvas'}).props('groupMeta')).toEqual({source:{environment:'test',room:'lab'}})
  w.unmount()
 })

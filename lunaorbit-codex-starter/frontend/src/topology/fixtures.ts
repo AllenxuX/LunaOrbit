@@ -1,4 +1,5 @@
 import type { GraphNode, Link, Snapshot } from '../api/topology'
+import type { ClusterMeta } from './scale-rules'
 
 // Deterministic synthetic topologies for layout tests and visual smoke checks.
 // Each row is one MM2 replication: [linkId, source cluster, target cluster, MM2 name, enabled].
@@ -52,4 +53,12 @@ export function cyclicGraph():Snapshot {
 /** A short chain plus clusters without any MM2 link. */
 export function isolatedGraph():Snapshot {
  return snapshotFromRows(['p1','p2','p3','p4','solo-1','solo-2','solo-3'],[['I01','p1','p2','mm2-p1-p2'],['I02','p2','p3','mm2-p2-p3'],['I03','p1','p4','mm2-p1-p4']])
+}
+
+/** Large graph for scale rules: multiple roots, some long edges, environment/room metadata with a few unknown environments. */
+export function generatedLarge(clusters=40,links=60,seed=11):{snapshot:Snapshot;meta:Record<string,ClusterMeta>} {
+ const snapshot=generatedDag(clusters,links,4,seed),random=rng(seed*31),envs=['prod','staging','test'],rooms=['sh-a','bj-b']
+ const meta:Record<string,ClusterMeta>={}
+ snapshot.nodes.filter(n=>n.kind==='kafka').forEach((n,i)=>{meta[n.id]={environment:i%13===5?undefined:envs[Math.floor(random()*envs.length)],room:rooms[Math.floor(random()*rooms.length)]}})
+ return {snapshot,meta}
 }

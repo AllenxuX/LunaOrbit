@@ -35,6 +35,16 @@ const locationHints=computed(()=>{
  }
  return result
 })
+// Scale grouping only uses confirmed registration metadata; unknown values stay unknown.
+const groupMeta=computed(()=>{
+ const result:Record<string,{environment?:string;room?:string}>={}
+ for(const link of visible.value?.links??[])for(const [mapping,end] of [[link.source,'source'],[link.target,'target']] as const){
+  const row=mapping.status==='confirmed'?clusters.value.find(c=>c.id===mapping.registration_id):undefined
+  const edge=row&&visible.value?.edges.find(e=>e.link_id===link.id&&e.relation===(end==='source'?'declared_input':'declared_output'))
+  if(row&&edge)result[end==='source'?edge.source:edge.target]={...(row.environment?{environment:row.environment}:{}),...(row.room?{room:row.room}:{})}
+ }
+ return result
+})
 function chooseSearch(id:string){selectNode(id);search.value='';canvas.value?.fit()}
 function clearSelection(){selected.value='';routeLinkIds.value=[];selectedNode.value='';pathKey.value=''}
 async function toggleFullscreen(){
@@ -205,7 +215,7 @@ async function confirmMapping(alias:string){
         <div class="graph-topline"><div class="topology-legend" aria-label="链路状态图例"><span class="legend-verified">已验证</span><span class="legend-unverified">未验证</span><span class="legend-unknown">状态未知</span><span class="legend-stale">过期 / 禁用</span></div><span class="helper-text">{{ visible.nodes.filter(n=>n.kind==='kafka').length }} 个集群 · {{ mode==='mm2'?`${clusterGraph?.edges.length??0} 条启用链路`:`${visible.links.length} 个任务` }}</span></div>
         <div v-if="selectedNode" class="focus-controls"><strong>{{ focusName }}</strong><span v-if="mode==='mm2'&&directCounts" data-direct-counts>直接上游 {{ directCounts.upstream }} · 直接下游 {{ directCounts.downstream }}</span><select v-model="focusDirection" data-focus-direction aria-label="聚焦范围"><option value="neighbors">直接关联</option><option value="upstream">全部上游</option><option value="downstream">全部下游</option></select><button data-clear-focus @click="clearSelection">显示全部</button></div>
         <div v-if="mode==='mm2'" class="path-controls" aria-label="配置路径追踪"><span title="仅表示启用任务的集群连接关系，Topic 是否连续匹配需逐段确认">配置路径</span><select v-model="pathSource" data-path-source aria-label="路径起点"><option value="">选择起点</option><option v-for="node in pathNodes" :key="node.id" :value="node.id">{{ node.name }}</option></select><span>→</span><select v-model="pathTarget" data-path-target aria-label="路径终点"><option value="">选择终点</option><option v-for="node in pathNodes" :key="node.id" :value="node.id">{{ node.name }}</option></select><select v-if="pathResults.paths.length" v-model="pathKey" data-path-choice aria-label="选择配置路径" @change="choosePath"><option value="">选择路径（{{ pathResults.paths.length }}）</option><option v-for="(path,index) in pathResults.paths" :key="path.key" :value="path.key">{{ index+1 }}. {{ pathName(path.nodeIds) }} · {{ path.linkIds.length }} 段任务</option></select><span v-else-if="pathSource&&pathTarget" class="helper-text">{{ pathSource===pathTarget?'请选择不同的起点和终点':'未找到启用的配置路径' }}</span><button v-if="chosenPath" data-clear-path @click="clearSelection">返回全图</button><span v-if="pathResults.truncated" class="helper-text">路径结果已截断，请缩小范围</span></div>
-        <TopologyCanvas ref="canvas" :snapshot="visible" :positions="positions" :mode="graphMode" :show-disabled="includeDisabled" :path-node-ids="chosenPath?.nodeIds" :selected-link-ids="selectedLinkIds" :focus-node-id="selectedNode" :focus-direction="focusDirection" :registrations="clusters" :node-hints="locationHints" :affected-nodes="affectedNodes" :confirmed-links="confirmedLinks" @organize="reset" @layout-busy="layoutBusy=$event" @move="move" @select="selectLink" @select-links="selectLinks" @select-node="selectNode" @clear="clearSelection" />
+        <TopologyCanvas ref="canvas" :snapshot="visible" :positions="positions" :mode="graphMode" :show-disabled="includeDisabled" :group-meta="groupMeta" :path-node-ids="chosenPath?.nodeIds" :selected-link-ids="selectedLinkIds" :focus-node-id="selectedNode" :focus-direction="focusDirection" :registrations="clusters" :node-hints="locationHints" :affected-nodes="affectedNodes" :confirmed-links="confirmedLinks" @organize="reset" @layout-busy="layoutBusy=$event" @move="move" @select="selectLink" @select-links="selectLinks" @select-node="selectNode" @clear="clearSelection" />
         <p v-if="!visible.nodes.length" class="empty-graph">当前筛选下没有同步关系</p>
         <div class="graph-controls" aria-label="画布操作"><button aria-label="放大" @click="canvas?.zoomIn()">＋</button><button aria-label="缩小" @click="canvas?.zoomOut()">－</button><button @click="canvas?.fit()">适应画布</button><button @click="toggleFullscreen">{{ fullscreen?'退出全屏':'全屏' }}</button></div>
       </div>

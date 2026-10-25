@@ -4,15 +4,23 @@ import { Graph,type Cell,type Node,type Edge } from '@antv/x6'
 import type { Snapshot,Position } from '../api/topology'
 import { nodeIdentity,type RegistrationIdentity } from '../topology/model'
 import { focusPresentation,type PresentationEdge } from '../topology/presentation'
+import { applyScaleRules,labelBudget,type ClusterMeta } from '../topology/scale-rules'
 import { clusterNodeHeight,clusterNodeWidth,labelDistance,middleEllipsis,presentationFor,type CanvasMode } from '../topology/cluster-presentation'
 import { createLayoutTask,type LayoutTask } from '../topology/layout-client'
 import { RoutingSession } from '../topology/stable-routing'
 import type { LayoutPlan,RoutingUpdate } from '../topology/routing-types'
-const props=withDefaults(defineProps<{snapshot:Snapshot;positions:Record<string,Position>;affectedNodes?:string[];confirmedLinks?:string[];registrations?:RegistrationIdentity[];mode?:CanvasMode;showDisabled?:boolean;selectedLinkIds?:string[];focusNodeId?:string;focusDirection?:'neighbors'|'upstream'|'downstream';nodeHints?:Record<string,string>;pathNodeIds?:string[]}>(),{mode:'relations',showDisabled:false,focusDirection:'neighbors',affectedNodes:()=>[],confirmedLinks:()=>[],registrations:()=>[],selectedLinkIds:()=>[],focusNodeId:undefined,nodeHints:()=>({}),pathNodeIds:()=>[]})
+const props=withDefaults(defineProps<{snapshot:Snapshot;positions:Record<string,Position>;affectedNodes?:string[];confirmedLinks?:string[];registrations?:RegistrationIdentity[];mode?:CanvasMode;showDisabled?:boolean;groupMeta?:Record<string,ClusterMeta>;selectedLinkIds?:string[];focusNodeId?:string;focusDirection?:'neighbors'|'upstream'|'downstream';nodeHints?:Record<string,string>;pathNodeIds?:string[]}>(),{mode:'relations',showDisabled:false,groupMeta:()=>({}),focusDirection:'neighbors',affectedNodes:()=>[],confirmedLinks:()=>[],registrations:()=>[],selectedLinkIds:()=>[],focusNodeId:undefined,nodeHints:()=>({}),pathNodeIds:()=>[]})
 const emit=defineEmits<{move:[id:string,position:Position];select:[linkId:string];selectLinks:[ids:string[]];selectNode:[nodeId:string];clear:[];layoutBusy:[busy:boolean];organize:[]}>()
 const container=ref<InstanceType<typeof globalThis.HTMLDivElement>>()
+const expandedGroups=ref(new Set<string>())
+const scale=computed(()=>{
+ const base=presentationFor(props.snapshot,props.mode,props.showDisabled)
+ return props.mode==='clusters'?applyScaleRules(base,props.groupMeta??{},{expanded:expandedGroups.value}):{presentation:base,grouped:false as const,groups:undefined}
+})
+const groupCards=computed(()=>new Map((scale.value.groups?.groups??[]).map(g=>[g.id,g.card])))
+const labelNotice=ref('')
 const presentation=computed(()=>{
- const full=presentationFor(props.snapshot,props.mode,props.showDisabled)
+ const full=scale.value.presentation
  if(!props.pathNodeIds.length)return full
  const ids=new Set(props.pathNodeIds)
  return {nodes:full.nodes.filter(n=>ids.has(n.id)),edges:full.edges.filter(e=>ids.has(e.source)&&ids.has(e.target))}
@@ -63,7 +71,8 @@ function scheduleFit(){
 }
 function color(edge:PresentationEdge){return edge.stale||edge.state==='disabled'?'#929aa6':edge.state==='verified'?'#35744e':edge.state==='unknown'?'#bd8b39':'#758aa5'}
 function status(edge:PresentationEdge){return edge.stale?'数据已过期 · 状态未知':edge.state==='disabled'?'同步已禁用':edge.state==='verified'?'链路已验证':edge.state==='unknown'?'状态未知':'链路未验证'}
-function name(id:string){const node=presentation.value.nodes.find(n=>n.id===id);return node?.linkId?node.label:nodeIdentity(props.snapshot,id,props.registrations??[])}
+function name(id:string){const node=presentation.value.nodes.find(n=>n.id===id);return node?.linkId||id.startsWith('group:')?node?.label??id:nodeIdentity(props.snapshot,id,props.registrations??[])}
+function meta(id:string,kind:string,linkId?:string){if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
 function overlays(){
  if(!graph)return
  const focus=props.focusNodeId?focusPresentation(presentation.value,props.focusNodeId,props.focusDirection):undefined
@@ -80,15 +89,19 @@ function overlays(){
   node.attr('body/opacity',focusing&&!focused?0.3:1)
   node.attr('label/opacity',focusing&&!focused?0.4:1)
  }
+ const budget=props.mode==='clusters'&&plan?labelBudget(presentation.value,plan,{focusEdgeIds:focus?.edgeIds,selectedEdgeIds:selectedEdges.map(e=>e.id)}):undefined
+ const shownLabels=new Set(budget?.shown??[]),positionsNow=session?.getPositions()
+ labelNotice.value=budget?.notice??''
  for(const cell of graph.getEdges()){
   const edge=cell.getData<PresentationEdge>()
   if(!edge)continue
   const selectedEdge=edge.linkIds.some(id=>selected.has(id))
   const inFocus=focus?.edgeIds.includes(edge.id)??selectedEdge
-  const expanded=hoveredEdge===edge.id||props.mode!=='chain'&&(selectedEdge||!!focus&&inFocus)
+  const expanded=hoveredEdge===edge.id||props.mode!=='chain'&&(selectedEdge||props.mode!=='clusters'&&!!focus&&inFocus)
   const count=edge.linkIds.length>1?`${edge.linkIds.length} 条链路`:''
   const confirmed=edge.linkIds.some(id=>props.confirmedLinks?.includes(id))?' · 业务人工确认（非健康验证）':''
-  const tag=props.mode==='clusters'?middleEllipsis(edge.label??'',18)+(edge.state==='disabled'?' · 已禁用':''):count
+  const back=!!positionsNow&&positionsNow[edge.target]!.x<=positionsNow[edge.source]!.x
+  const tag=props.mode==='clusters'?(shownLabels.has(edge.id)?middleEllipsis(edge.label??'',18)+(edge.state==='disabled'?' · 已禁用':'')+(back?' · 回流/环路':''):''):count
   const text=expanded?`${props.mode==='clusters'?(edge.label??'')+'\n':''}${name(edge.source)} → ${name(edge.target)}\n${[props.mode==='clusters'?'':count,status(edge)+confirmed].filter(Boolean).join(' · ')}`:tag
   const box=plan?.labels?.[edge.id],route=session?.getRoutes()[edge.id],moved=JSON.stringify(route)!==JSON.stringify(plan?.routes[edge.id])
   const position=props.mode==='clusters'&&box&&route&&!moved&&!expanded?{distance:Math.max(1.01,labelDistance(route,box)),offset:0}:{distance:0.5,offset:-14}
@@ -110,7 +123,7 @@ function draw(){
   const related=presentation.value.edges.flatMap(e=>(['source','target'] as const).filter(end=>e[end]===n.id).map(end=>{const anchor=plan!.ports[e.id]![end];return {id:port(e,end),group:anchor.side,args:{x:anchor.side==='right'?nodeWidth():0,y:anchor.offset}}}))
   const cell=graph.createNode({id:n.id,x:p.x,y:p.y,width:nodeWidth(),height:nodeHeight(),shape:'rect',markup:[{tagName:'title',selector:'title'},{tagName:'rect',selector:'body'},{tagName:'text',selector:'label'},{tagName:'text',selector:'meta'}],
    ports:{groups:{left:{position:'absolute',attrs:{circle:{r:0,magnet:false}}},right:{position:'absolute',attrs:{circle:{r:0,magnet:false}}}},items:related},
-   attrs:{title:{text:name(n.id)},body:{fill:n.kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:n.kind==='kafka'?'#6386c7':'#8b70ba',rx:8,ry:8},label:{text:props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id),refX:'50%',refY:'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:`${n.kind==='kafka'?'Kafka':n.linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[n.id]?' · '+props.nodeHints[n.id]:''}`,refX:'50%',refY:'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
+   attrs:{title:{text:name(n.id)},body:{fill:n.kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:n.kind==='kafka'?'#6386c7':'#8b70ba',rx:8,ry:8},label:{text:props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id),refX:'50%',refY:'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:meta(n.id,n.kind,n.linkId),refX:'50%',refY:'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
   nodes.set(n.id,cell);cells.push(cell)
  }
  for(const edge of presentation.value.edges){
@@ -137,7 +150,7 @@ onMounted(()=>{
  })
  graph.on('edge:click',({edge})=>{const ids=edge.getData<PresentationEdge>()?.linkIds??[];if(ids.length===1)emit('select',ids[0]!);else if(ids.length>1)emit('selectLinks',[...ids])})
  graph.on('blank:click',()=>emit('clear'))
- graph.on('node:click',({node})=>{const task=node.getData<{linkId?:string}>()?.linkId;if(task)emit('select',task);else emit('selectNode',node.id)})
+ graph.on('node:click',({node})=>{if(node.id.startsWith('group:')){const next=new Set(expandedGroups.value);if(next.has(node.id))next.delete(node.id);else next.add(node.id);expandedGroups.value=next;return}const task=node.getData<{linkId?:string}>()?.linkId;if(task)emit('select',task);else emit('selectNode',node.id)})
  graph.on('edge:mouseenter',({edge})=>{hoveredEdge=edge.id;overlays()})
  graph.on('edge:mouseleave',()=>{hoveredEdge=undefined;overlays()})
  void arrange(false)
@@ -155,7 +168,7 @@ onMounted(()=>{
 watch(structure,()=>{void arrange(false)})
 watch(()=>props.positions,syncPositions)
 watch([()=>props.snapshot,()=>props.registrations,()=>props.nodeHints],()=>{
- for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',`${n.kind==='kafka'?'Kafka':n.linkId?'MM2 同步任务':'MM2'}${props.nodeHints[n.id]?' · '+props.nodeHints[n.id]:''}`)}
+ for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',meta(n.id,n.kind,n.linkId))}
  for(const edge of presentation.value.edges){edges.get(edge.id)?.setData(edge);edges.get(edge.id)?.attr('line/strokeDasharray',edge.state==='disabled'?'2 5':edge.stale||edge.state!=='verified'?'6 4':'0')}
  overlays()
 })
@@ -163,7 +176,7 @@ watch([()=>props.affectedNodes,()=>props.confirmedLinks,()=>props.selectedLinkId
 onBeforeUnmount(()=>{++fitEpoch;++layoutEpoch;task?.cancel();globalThis.cancelAnimationFrame(previewFrame);resizeObserver?.disconnect();graph?.dispose();graph=undefined})
 defineExpose({arrange,fit:()=>graph?.zoomToFit({padding:56,maxScale:1}),zoomIn:()=>graph?.zoom(0.15),zoomOut:()=>graph?.zoom(-0.15)})
 </script>
-<template><div class="topology-canvas" role="img" aria-label="同步拓扑；点击集群查看上下游，点击连线查看同步链路"><div ref="container" class="topology-graph-host" /><div v-if="loading||message" class="layout-notice" aria-live="polite">{{ loading?'正在整理布局…':message }}<button v-if="!loading" @click="emit('organize')">重新整理</button></div></div></template>
+<template><div class="topology-canvas" role="img" aria-label="同步拓扑；点击集群查看上下游，点击连线查看同步链路"><div ref="container" class="topology-graph-host" /><div v-if="scale.grouped||labelNotice" class="scale-notice" aria-live="polite"><span v-if="scale.grouped">分组总览 · 依据：{{ scale.groups?.basis.join(' / ') }} · 点击分组展开</span><span v-if="labelNotice">{{ labelNotice }}</span></div><div v-if="loading||message" class="layout-notice" aria-live="polite">{{ loading?'正在整理布局…':message }}<button v-if="!loading" @click="emit('organize')">重新整理</button></div></div></template>
 <style scoped>
-.topology-canvas{position:relative}.layout-notice{position:absolute;top:12px;left:12px;right:12px;padding:10px 14px;background:#fff;border:1px solid #dce4ef;border-radius:6px;color:#53647c;font-size:13px;box-shadow:0 2px 8px #23395d0a}.layout-notice button{margin-left:12px;color:#315fc1;border:0;background:none;cursor:pointer}
+.topology-canvas{position:relative}.layout-notice{position:absolute;top:12px;left:12px;right:12px;padding:10px 14px;background:#fff;border:1px solid #dce4ef;border-radius:6px;color:#53647c;font-size:13px;box-shadow:0 2px 8px #23395d0a}.scale-notice{position:absolute;left:12px;bottom:12px;display:flex;gap:12px;padding:6px 10px;background:#fff;border:1px solid #dce4ef;border-radius:6px;color:#53647c;font-size:12px}.layout-notice button{margin-left:12px;color:#315fc1;border:0;background:none;cursor:pointer}
 </style>
