@@ -172,4 +172,10 @@ describe('Topic 链路 page',()=>{
   const g=r.get('[data-unparsed-task]').text();expect(g).toContain('task-1');expect(g).toContain('(?<n>x)');expect(g).toContain('结果可能不完整，不代表没有同步。');expect(g).toContain('在 MM2 拓扑查看')
   wrapper.unmount()
  })
+ it('terminal cluster candidate says 无下游同步配置 instead of 覆盖 0 个集群',async()=>{
+  stub();const {wrapper}=await page('/topic-lineage?cluster_id=b&topic=orders')
+  const opts=wrapper.findAll('#lineage-topics option').map(o=>`${o.attributes('value')}|${o.attributes('label')}`)
+  expect(opts).toEqual(['orders|无下游同步配置']);expect(wrapper.html()).not.toContain('覆盖 0 个集群')
+  wrapper.unmount()
+ })
 })
