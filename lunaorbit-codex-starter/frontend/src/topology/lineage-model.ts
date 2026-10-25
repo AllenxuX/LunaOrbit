@@ -101,9 +101,41 @@ export function mergeDirections(up:Lineage,down:Lineage):Lineage {
  const issues=[...up.issues,...down.issues].filter((i,k,all)=>all.findIndex(o=>o.code===i.code&&o.link_id===i.link_id&&o.cluster_id===i.cluster_id)===k)
  return Object.assign({root_id:up.root_id,observed_at:down.observed_at>up.observed_at?down.observed_at:up.observed_at,nodes:[...nodes.values()],edges:[...edges.values()],issues,truncated:up.truncated||down.truncated,depth:Math.max(up.depth,down.depth)},{[ROLE_KEY]:roles})
 }
-export function nodeRole(g:Lineage,id:string):Role|undefined {return id===g.root_id?'root':(g as Lineage&{[ROLE_KEY]?:Record<string,Role>})[ROLE_KEY]?.[id]}
-/** Neutral existence wording by the node's role; never calls an observed-missing topic a "配置目标". */
-export function existenceLabel(g:Lineage,n:LineageNode):string {
- const role=nodeRole(g,n.id),prefix=role==='root'?'根节点':role==='upstream'?'上游':role==='downstream'?'下游':role==='both'?'上下游':'关联'
- return n.exists===true?`${prefix} · Topic 存在`:n.exists===false?`${prefix}（Topic 不存在）`:`${prefix} · Topic 存在性未确认`
+export type NodeState={kind:'source'|'exists'|'pending'|'break';text:string}
+interface Pair {s:string;t:string;m:string}
+function pairsOf(g:Lineage):Pair[] {
+ const kind=new Map(g.nodes.map(n=>[n.id,n.kind])),out:Pair[]=[]
+ for(const m of g.nodes)if(m.kind==='mm2'){const ins=g.edges.filter(e=>e.target===m.id&&kind.get(e.source)==='topic'),outs=g.edges.filter(e=>e.source===m.id&&kind.get(e.target)==='topic');for(const i of ins)for(const o of outs)out.push({s:i.source,t:o.target,m:m.id})}
+ return out
+}
+/**
+ * 源头 rule: upstream stops at the first cluster without the topic (no node, no edge);
+ * downstream keeps a missing target as "pending" and does not expand it.
+ * States: source / exists / pending / break, mutually exclusive.
+ */
+export function resolveSources(input:{direction:Direction;up?:Lineage;down?:Lineage}):{graph:Lineage;states:Record<string,NodeState>;summary:string;rootMissing:boolean;sources:string[]} {
+ const base=input.up&&input.down?mergeDirections(input.up,input.down):(input.up??input.down)!
+ const raw=new Map(base.nodes.map(n=>[n.id,n])),root=base.root_id,has=(id:string)=>raw.get(id)?.exists===true
+ const allPairs=[...(input.up?pairsOf(input.up):[]),...(input.down?pairsOf(input.down):[])]
+ if(!has(root))return {graph:{...base,nodes:[],edges:[]},states:{},summary:'',rootMissing:true,sources:[]}
+ const keep=new Set([root]),keepM=new Set<string>()
+ if(input.up&&input.direction!=='downstream'){const pairs=pairsOf(input.up),q=[root];for(let k=0;k<q.length;k++)for(const p of pairs)if(p.t===q[k]&&has(p.s)){keepM.add(p.m);if(!keep.has(p.s)){keep.add(p.s);q.push(p.s)}}}
+ if(input.down&&input.direction!=='upstream'){const pairs=pairsOf(input.down),q=[root];for(let k=0;k<q.length;k++)for(const p of pairs)if(p.s===q[k]){keepM.add(p.m);if(!keep.has(p.t)){keep.add(p.t);if(has(p.t))q.push(p.t)}}}
+ const preds=(id:string)=>[...new Set(allPairs.filter(p=>p.t===id).map(p=>p.s))]
+ const hasExistingAncestor=(id:string)=>{const seen=new Set([id]),q=[id];for(let k=0;k<q.length;k++)for(const p of preds(q[k]!)){if(has(p))return true;if(!seen.has(p)){seen.add(p);q.push(p)}}return false}
+ const name=(id:string)=>raw.get(id)?.cluster_name??raw.get(id)?.cluster_id??'未知集群'
+ const states:Record<string,NodeState>={}
+ for(const id of keep){
+  if(!has(id)){states[id]={kind:'pending',text:'已配置同步，目标 Topic 尚未出现'};continue}
+  const ps=preds(id);if(ps.some(has)){states[id]={kind:'exists',text:''};continue}
+  const broken=ps.filter(hasExistingAncestor)
+  states[id]=broken.length?{kind:'break',text:`上游断点：${broken.map(name).join('、')} 无此 Topic`}:{kind:'source',text:'源头'}
+ }
+ const nodeIds=new Set([...keep,...keepM])
+ for(const n of base.nodes)if(n.kind!=='topic'&&n.kind!=='mm2'&&base.edges.some(e=>(e.source===n.id&&keep.has(e.target))||(e.target===n.id&&keep.has(e.source))))nodeIds.add(n.id)
+ const graph:Lineage={...base,nodes:base.nodes.filter(n=>nodeIds.has(n.id)),edges:base.edges.filter(e=>nodeIds.has(e.source)&&nodeIds.has(e.target))}
+ const order=[...keep],sources=order.filter(id=>states[id]!.kind==='source').map(name).sort(),breaks=order.filter(id=>states[id]!.kind==='break').length,pending=order.filter(id=>states[id]!.kind==='pending').length
+ const parts=[sources.length===1&&!breaks?`源头：${sources[0]}`:`源头 ${sources.length} 个${sources.length?'：'+sources.join('、'):''}`]
+ if(breaks)parts.push(`断点 ${breaks} 处`);if(pending)parts.push(`未出现 ${pending} 个`)
+ return {graph,states,summary:parts.join(' · '),rootMissing:false,sources}
 }

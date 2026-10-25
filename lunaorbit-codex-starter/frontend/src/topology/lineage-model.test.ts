@@ -131,15 +131,56 @@ describe('上下游 = directed ancestors ∪ directed descendants',()=>{
   expect(clustersOf(mergeDirections(trace('k4','upstream',4,()=>true),trace('k4','downstream',4,()=>true)))).toEqual(['k1','k4','k7','k8','k9'])
   expect(clustersOf(trace('k1','downstream',4,()=>true))).toHaveLength(9)
  })
- it('cycles terminate and roles label missing topics neutrally',async()=>{
-  const {mergeDirections,nodeRole,existenceLabel}=await import('./lineage-model'),cyc:[string,string][]=[['a','b'],['b','c'],['c','a'],['c','d']]
-  const g=mergeDirections(trace('b','upstream',4,c=>c!=='a',cyc),trace('b','downstream',4,c=>c!=='a',cyc))
-  expect(clustersOf(g)).toEqual(['a','b','c','d'])
-  const a=g.nodes.find(n=>n.cluster_id==='a')!
-  expect(nodeRole(g,a.id)).toBe('both');expect(existenceLabel(g,a)).toBe('上下游（Topic 不存在）')
-  const only=new Set(['k4','k7','k8','k9']),h=mergeDirections(trace('k4','upstream',4,c=>only.has(c)),trace('k4','downstream',4,c=>only.has(c)))
-  expect(existenceLabel(h,h.nodes.find(n=>n.cluster_id==='k1')!)).toBe('上游（Topic 不存在）')
-  expect(existenceLabel(h,h.nodes.find(n=>n.cluster_id==='k7')!)).toBe('下游 · Topic 存在')
-  expect(existenceLabel(h,h.nodes.find(n=>n.cluster_id==='k4')!)).toBe('根节点 · Topic 存在')
+ it('cycles terminate in a merged view',async()=>{
+  const {mergeDirections}=await import('./lineage-model'),cyc:[string,string][]=[['a','b'],['b','c'],['c','a'],['c','d']]
+  expect(clustersOf(mergeDirections(trace('b','upstream',4,()=>true,cyc),trace('b','downstream',4,()=>true,cyc)))).toEqual(['a','b','c','d'])
+ })
+
+})
+
+describe('源头 four-state rule (LUNA-28)',()=>{
+ const cl=(g:Lineage)=>g.nodes.filter(n=>n.kind==='topic').map(n=>n.cluster_id).sort()
+ const rel=(g:Lineage)=>collapseLineage(g,{showConsumers:false}).edges.length
+ const src4=(c:string)=>['k4','k7','k8','k9'].includes(c)
+ const kinds=(r:{graph:Lineage;states:Record<string,{kind:string}>})=>Object.fromEntries(r.graph.nodes.filter(n=>n.kind==='topic').map(n=>[n.cluster_id,r.states[n.id]!.kind]))
+ const load=()=>import('./lineage-model')
+ it('k4 luna-src-k4 upstream 4: only k4, marked 源头',async()=>{
+  const {resolveSources}=await load(),r=resolveSources({direction:'upstream',up:trace('k4','upstream',4,src4)})
+  expect(cl(r.graph)).toEqual(['k4']);expect(kinds(r)).toEqual({k4:'source'});expect(r.summary).toBe('源头：k4')
+ })
+ it('k4 luna-src-k4 downstream 4: k4 k7 k8 k9, 3 relations, only k4 is 源头',async()=>{
+  const {resolveSources}=await load(),r=resolveSources({direction:'downstream',up:trace('k4','upstream',4,src4),down:trace('k4','downstream',4,src4)})
+  expect(cl(r.graph)).toEqual(['k4','k7','k8','k9']);expect(rel(r.graph)).toBe(3)
+  expect(kinds(r)).toEqual({k4:'source',k7:'exists',k8:'exists',k9:'exists'})
+ })
+ it('k8 shared topic upstream 3 and 4: 8 nodes, 9 relations, only k1 is 源头',async()=>{
+  const {resolveSources}=await load()
+  for(const d of [3,4]){const r=resolveSources({direction:'upstream',up:trace('k8','upstream',d,()=>true)})
+   expect(cl(r.graph)).toEqual(['k1','k2','k3','k4','k5','k6','k7','k8']);expect(rel(r.graph)).toBe(9)
+   expect(Object.entries(kinds(r)).filter(([,k])=>k==='source').map(([c])=>c)).toEqual(['k1']);expect(r.summary).toBe('源头：k1')}
+ })
+ it('query cluster without the topic draws nothing',async()=>{
+  const {resolveSources}=await load(),r=resolveSources({direction:'both',up:trace('k1','upstream',4,src4),down:trace('k1','downstream',4,src4)})
+  expect(r.rootMissing).toBe(true);expect(r.graph.nodes).toHaveLength(0)
+ })
+ it('downstream target not yet present stays as a pending node and is not expanded',async()=>{
+  const {resolveSources}=await load(),P:[string,string][]=[['a','b'],['b','c']],ex=(c:string)=>c!=='b'
+  const r=resolveSources({direction:'downstream',up:trace('a','upstream',4,ex,P),down:trace('a','downstream',4,ex,P)})
+  expect(cl(r.graph)).toEqual(['a','b']);expect(r.states['topic:b']).toEqual({kind:'pending',text:'已配置同步，目标 Topic 尚未出现'});expect(r.summary).toBe('源头：a · 未出现 1 个')
+ })
+ it('broken chain in the middle: stop at the gap and mark 上游断点',async()=>{
+  const {resolveSources}=await load(),P:[string,string][]=[['a','b'],['b','c']],ex=(c:string)=>c!=='b'
+  const r=resolveSources({direction:'upstream',up:trace('c','upstream',4,ex,P)})
+  expect(cl(r.graph)).toEqual(['c']);expect(r.states['topic:c']).toEqual({kind:'break',text:'上游断点：b 无此 Topic'});expect(r.summary).toBe('源头 0 个 · 断点 1 处')
+ })
+ it('two independently created sources are both marked and listed',async()=>{
+  const {resolveSources}=await load(),P:[string,string][]=[['x','z'],['y','z'],['w','x']],ex=(c:string)=>c!=='w'
+  const r=resolveSources({direction:'upstream',up:trace('z','upstream',4,ex,P)})
+  expect(cl(r.graph)).toEqual(['x','y','z']);expect(kinds(r)).toEqual({x:'source',y:'source',z:'exists'});expect(r.summary).toBe('源头 2 个：x、y')
+ })
+ it('上下游 union still yields k4 k7 k8 k9 and no forbidden wording',async()=>{
+  const {resolveSources}=await load(),r=resolveSources({direction:'both',up:trace('k4','upstream',4,src4),down:trace('k4','downstream',4,src4)})
+  expect(cl(r.graph)).toEqual(['k4','k7','k8','k9'])
+  expect(JSON.stringify(r)).not.toMatch(/上游（Topic 不存在）|配置目标/)
  })
 })

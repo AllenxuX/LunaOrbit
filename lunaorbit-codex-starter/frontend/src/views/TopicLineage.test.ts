@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TopicLineage from './TopicLineage.vue'
-vi.mock('../components/TopicLineageCanvas.vue',()=>({default:{name:'TopicLineageCanvas',props:['view','rootId','tags'],emits:['selectNode','selectEdge'],template:'<div data-canvas />'}}))
+vi.mock('../components/TopicLineageCanvas.vue',()=>({default:{name:'TopicLineageCanvas',props:['view','rootId','states'],emits:['selectNode','selectEdge'],template:'<div data-canvas />'}}))
 
 const topicNode=(c:string,name:string)=>({id:`topic:${c}`,kind:'topic',label:'orders',cluster_id:c,cluster_name:name,topic:'orders',exists:true,evidence:'observed',observed_at:'2026-10-25T10:00:00Z'})
 const graph={root_id:'topic:a',observed_at:'2026-10-25T10:05:00Z',depth:2,truncated:false,issues:[] as {code:string;message:string}[],
@@ -51,7 +51,9 @@ describe('Topic 链路 page',()=>{
  })
  it('topic that does not exist says so instead of blaming the connection',async()=>{
   stub({lineageStatus:404,topics:{a:['payments'],b:[]}});const {wrapper}=await page('/topic-lineage?cluster_id=a&topic=ghost')
-  expect(wrapper.text()).toContain('该 Topic 在所选集群不存在');expect(wrapper.text()).not.toContain('检查集群连接')
+  const nf=wrapper.get('[data-not-found]').text()
+  expect(nf).toContain('该集群未读取到此 Topic');expect(nf).toMatch(/确实没有.*名称不完全一致.*集群连接不可用/s);expect(wrapper.text()).not.toContain('检查集群连接')
+  expect(wrapper.find('[data-not-found] [data-reinput]').exists()).toBe(true);expect(wrapper.find('[data-canvas]').exists()).toBe(false)
   wrapper.unmount()
  })
  it('stale snapshot keeps the last configuration graph with a permanent banner',async()=>{
@@ -116,9 +118,15 @@ describe('Topic 链路 page',()=>{
   const urls=fetch.mock.calls.map(([u])=>String(u)).filter(u=>u.includes('/topic-lineage?'))
   expect(urls.some(u=>u.includes('direction=both'))).toBe(false)
   expect(urls.some(u=>u.includes('direction=upstream'))&&urls.some(u=>u.includes('direction=downstream'))).toBe(true)
-  expect(view(wrapper).nodes.map(n=>n.id).sort()).toEqual(['topic:a','topic:b'])
-  const tags=wrapper.findComponent({name:'TopicLineageCanvas'}).props('tags') as Record<string,string>
-  expect(tags['topic:a']).toBe('上游（Topic 不存在）');expect(wrapper.text()).not.toContain('配置目标')
+  expect(view(wrapper).nodes.map(n=>n.id)).toEqual(['topic:b'])
+  const states=wrapper.findComponent({name:'TopicLineageCanvas'}).props('states') as Record<string,{kind:string}>
+  expect(states['topic:b']!.kind).toBe('source');expect(wrapper.get('[data-source-summary]').text()).toBe('源头：Shanghai')
+  expect(wrapper.text()).not.toMatch(/配置目标|上游（Topic 不存在）/)
+  wrapper.unmount()
+ })
+ it('root topic reported as absent by the lineage draws no nodes',async()=>{
+  stub({lineage:{...rootOnly,nodes:[{...topicNode('a','Beijing'),exists:false}]}});const {wrapper}=await page()
+  expect(wrapper.get('[data-not-found]').text()).toContain('该集群未读取到此 Topic');expect(wrapper.find('[data-canvas]').exists()).toBe(false)
   wrapper.unmount()
  })
 })
