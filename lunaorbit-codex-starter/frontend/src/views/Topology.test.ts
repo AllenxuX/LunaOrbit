@@ -285,3 +285,17 @@ it('MM2 page task panel counts only enabled MM2 tasks unless disabled are shown'
  expect(w.get('.task-panel').text()).not.toContain('个任务')
  w.unmount()
 })
+
+it('更多 menu closes on outside click, Esc and after an action (LUNA-33B)',async()=>{
+ const w=setup();await flushPromises()
+ const more=()=>w.get('.topology-more').element as HTMLDetailsElement
+ more().open=true;globalThis.document.body.dispatchEvent(new globalThis.MouseEvent('pointerdown',{bubbles:true}));await flushPromises();expect(more().open).toBe(false)
+ more().open=true;more().querySelector('summary')!.dispatchEvent(new globalThis.MouseEvent('pointerdown',{bubbles:true}));expect(more().open).toBe(true)
+ globalThis.document.dispatchEvent(new globalThis.KeyboardEvent('keydown',{key:'Escape'}));await flushPromises();expect(more().open).toBe(false)
+ more().open=true;await w.get('[data-reload-view]').trigger('click');expect(more().open).toBe(false)
+ w.unmount()
+})
+it('toolbar holding 更多 does not clip its menu',async()=>{
+ const src=(await import('./Topology.vue?raw')).default
+ expect(src).toMatch(/\.topology-toolbar\.panel\{[^}]*overflow:visible/)
+})
