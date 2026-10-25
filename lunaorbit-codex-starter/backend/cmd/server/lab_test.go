@@ -6,6 +6,7 @@ import (
 	"lunaorbit/backend/internal/config"
 	"lunaorbit/backend/internal/registry"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -63,5 +64,27 @@ func TestLabPolicyRequiresAllBounds(t *testing.T) {
 	defer s.Close()
 	if configureLabKafka(s, func(string) string { return "" }) == nil {
 		t.Fatal("unbounded policy accepted")
+	}
+}
+
+func TestLabPolicyPortCountBound(t *testing.T) {
+	ports := func(n int) string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = strconv.Itoa(19092 + i)
+		}
+		return strings.Join(out, ",")
+	}
+	for _, tc := range []struct {
+		n  int
+		ok bool
+	}{{9, true}, {16, true}, {17, false}} {
+		s := registry.NewService(registry.NewMemoryStore(), registry.NewMemorySecrets())
+		env := map[string]string{"KAFKA_LAB_ALLOWED_CIDRS": "127.0.0.1/32", "KAFKA_LAB_ALLOWED_HOSTS": "127.0.0.1", "KAFKA_LAB_ALLOWED_PORTS": ports(tc.n)}
+		err := configureLabKafka(s, func(k string) string { return env[k] })
+		s.Close()
+		if (err == nil) != tc.ok {
+			t.Fatalf("%d ports: got err=%v, want ok=%v", tc.n, err, tc.ok)
+		}
 	}
 }

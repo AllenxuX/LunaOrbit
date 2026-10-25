@@ -95,7 +95,7 @@ func configureLabKafka(service *registry.Service, env func(string) string) error
 		}
 		ports = append(ports, n)
 	}
-	if len(ports) == 0 || len(ports) > 8 {
+	if len(ports) == 0 || len(ports) > 16 {
 		return errors.New("bounded lab Kafka ports required")
 	}
 	policy, e := kafkaadmin.NewNetworkPolicy(kafkaadmin.NetworkPolicyConfig{AllowedCIDRs: cidrs, AllowedHosts: hosts, AllowedPorts: ports, MaxConcurrent: 2, MaxBrokers: 8, Timeout: 4 * time.Second})
