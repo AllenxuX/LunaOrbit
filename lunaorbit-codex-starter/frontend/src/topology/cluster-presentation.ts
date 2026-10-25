@@ -48,9 +48,9 @@ export function middleEllipsis(text:string,max=18):string {
 }
 
 export const clusterNodeWidth=180,clusterNodeHeight=64
-export type CanvasMode=TopologyMode|'clusters'
+export type CanvasMode=TopologyMode|'clusters'|'pairs'
 export function presentationFor(snapshot:Snapshot,mode:CanvasMode,showDisabled=false):Presentation {
- return mode==='clusters'?buildClusterPresentation(snapshot,{showDisabled}):buildPresentation(snapshot,mode)
+ return mode==='clusters'?buildClusterPresentation(snapshot,{showDisabled}):mode==='pairs'?buildRelationPresentation(snapshot,{showDisabled}):buildPresentation(snapshot,mode)
 }
 
 /** Distance in px along an orthogonal route to the point nearest the centre of a reserved label box. */
@@ -78,4 +78,27 @@ export function lineage(p:Presentation,id:string):{upstream:string[];downstream:
  const up=walk(false),down=walk(true)
  const edgeIds=active.filter(e=>up.has(e.source)&&(up.has(e.target)||e.target===id)||down.has(e.target)&&(down.has(e.source)||e.source===id)).map(e=>e.id)
  return {upstream:[...up].sort(),downstream:[...down].sort(),edgeIds:edgeIds.sort()}
+}
+
+const rank:Record<PresentationEdge['state'],number>={verified:0,unverified:1,unknown:2,disabled:3}
+/** One edge per ordered cluster pair; parallel MM2 links are merged and labelled ×N. Disabled pairs never merge with active ones. */
+export function buildRelationPresentation(snapshot:Snapshot,options:ClusterOptions={}):Presentation {
+ const base=buildClusterPresentation(snapshot,{showDisabled:options.showDisabled}),pairs=new Map<string,PresentationEdge>()
+ for(const e of base.edges){
+  const key=JSON.stringify([e.source,e.target,e.state==='disabled']),hit=pairs.get(key)
+  if(hit){hit.linkIds.push(...e.linkIds);hit.stale||=e.stale;if(rank[e.state]>rank[hit.state])hit.state=e.state}
+  else pairs.set(key,{id:'pair:'+key,source:e.source,target:e.target,linkIds:[...e.linkIds],state:e.state,stale:e.stale})
+ }
+ const edges=[...pairs.values()].map(e=>e.linkIds.length>1?{...e,label:`×${e.linkIds.length}`}:e).sort((a,b)=>a.id.localeCompare(b.id))
+ const presentation={nodes:base.nodes,edges}
+ return options.transform?options.transform(presentation):presentation
+}
+
+type EvidenceLink=Pick<Snapshot['links'][number],'declared'|'observed'|'verified'|'state'|'enabled'|'stale'>
+/** Evidence source only; health is reported separately by statusText. */
+export function evidenceType(link:EvidenceLink):string {return link.observed?'配置关系 · 运行资源已发现':'配置关系'}
+export function statusText(link:EvidenceLink,snapshotStale:boolean):string {
+ if(snapshotStale||link.stale)return '数据已过期'
+ if(isDisabledLink(link))return '已禁用'
+ return link.verified?'已验证':'状态未知'
 }

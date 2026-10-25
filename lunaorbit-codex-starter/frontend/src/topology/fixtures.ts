@@ -62,3 +62,10 @@ export function generatedLarge(clusters=40,links=60,seed=11):{snapshot:Snapshot;
  snapshot.nodes.filter(n=>n.kind==='kafka').forEach((n,i)=>{meta[n.id]={environment:i%13===5?undefined:envs[Math.floor(random()*envs.length)],room:rooms[Math.floor(random()*rooms.length)]}})
  return {snapshot,meta}
 }
+
+/** Current lab plus a second enabled MM2 between k1 and k2: 9 clusters, 10 cluster pairs, 11 enabled links. */
+export function parallelPair():Snapshot {
+ const s=currentLab()
+ const extra=snapshotFromRows([],[['L11','k1','k2','mm2-k1-k2-extra']])
+ return {...s,nodes:[...s.nodes,...extra.nodes.filter(n=>n.kind==='workload')],edges:[...s.edges,...extra.edges],links:[...s.links,...extra.links]}
+}

@@ -114,3 +114,35 @@ describe('label placement',()=>{
   expect(labelDistance([{x:0,y:0},{x:100,y:0},{x:100,y:50}],{x:90,y:30,width:20,height:20})).toBe(140)
  })
 })
+
+describe('cluster pair relations',()=>{
+ it('merges parallel MM2 into one edge labelled ×N and keeps disabled pairs separate',async()=>{
+  const {buildRelationPresentation}=await import('./cluster-presentation'),{parallelPair}=await import('./fixtures')
+  const p=buildRelationPresentation(parallelPair())
+  expect(p.nodes).toHaveLength(9);expect(p.edges).toHaveLength(10)
+  const k12=p.edges.find(e=>e.source==='k1'&&e.target==='k2')!
+  expect(k12.linkIds.sort()).toEqual(['L01','L11']);expect(k12.label).toBe('×2')
+  expect(p.edges.filter(e=>e.linkIds.length===1).every(e=>e.label===undefined)).toBe(true)
+  expect(p.edges.reduce((n,e)=>n+e.linkIds.length,0)).toBe(11)
+  const all=buildRelationPresentation(parallelPair(),{showDisabled:true})
+  expect(all.edges).toHaveLength(20);expect(all.edges.filter(e=>e.state==='disabled')).toHaveLength(10)
+ })
+ it('lineage on the pair view equals lineage on the link view',async()=>{
+  const {buildRelationPresentation,lineage}=await import('./cluster-presentation'),{parallelPair}=await import('./fixtures')
+  for(const id of ['k3','k8'])expect({...lineage(buildRelationPresentation(parallelPair()),id),edgeIds:[]}).toEqual({...lineage(buildClusterPresentation(parallelPair()),id),edgeIds:[]})
+ })
+})
+
+describe('evidence wording',()=>{
+ it('names evidence type separately from runtime status and never calls configuration verified',async()=>{
+  const {evidenceType,statusText}=await import('./cluster-presentation')
+  const link={declared:true,observed:false,verified:false,state:'declared',enabled:true,stale:false}
+  expect(evidenceType(link)).toBe('配置关系')
+  expect(evidenceType({...link,observed:true})).toBe('配置关系 · 运行资源已发现')
+  expect(statusText(link,false)).toBe('状态未知')
+  expect(statusText(link,true)).toBe('数据已过期')
+  expect(statusText({...link,enabled:false},false)).toBe('已禁用')
+  expect(statusText({...link,verified:true},false)).toBe('已验证')
+  expect(evidenceType({...link,verified:true})).toBe('配置关系')
+ })
+})
