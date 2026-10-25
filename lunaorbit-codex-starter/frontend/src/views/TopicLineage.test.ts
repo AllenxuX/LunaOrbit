@@ -73,7 +73,7 @@ describe('Topic 链路 page',()=>{
  })
  it('no matching rule is reported with a reason and next steps',async()=>{
   stub({lineage:rootOnly,links:[{...link,topics_raw:'payments'}]});const {wrapper}=await page()
-  const r=wrapper.get('[data-reason="no_rule"]');expect(r.text()).toContain('没有 MM2 规则选中此 Topic');expect(r.findAll('a,button').length).toBeGreaterThan(0)
+  const r=wrapper.get('[data-reason="no_rule"]');expect(r.text()).toContain('该 Topic 未被任何同步规则选中，因此没有跨集群链路。');expect(r.findAll('a,button').length).toBeGreaterThan(0)
   wrapper.unmount()
  })
  it('changing conditions marks the old result as not updated; switching cluster revalidates the topic',async()=>{

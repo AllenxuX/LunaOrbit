@@ -47,16 +47,16 @@ describe('six empty / incomplete reasons',()=>{
  it('② no MM2 rule selects the topic',()=>{
   const r=classifyLineage({...base,result:rootOnly(),links:[rule({topics_raw:'payments'})]})
   expect(r.map(x=>x.kind)).toEqual(['no_rule'])
-  expect(r[0]!.title).toBe('没有 MM2 规则选中此 Topic')
+  expect(r[0]!.title).toBe('未被同步规则选中')
  })
  it('③ excluded by a task exclude rule, with task name and raw rule',()=>{
-  const r=classifyLineage({...base,topic:'orders.internal',result:{...rootOnly(),nodes:[T('a','orders.internal')]},links:[rule({topics_exclude_raw:'.*\\.internal'})]})
-  expect(r[0]!.kind).toBe('excluded');expect(r[0]!.facts.join(' ')).toContain('mm2-a-b');expect(r[0]!.facts.join(' ')).toContain('.*\\.internal')
+  const r=classifyLineage({...base,topic:'orders.replica',result:{...rootOnly(),nodes:[T('a','orders.replica')]},links:[rule({topics_exclude_raw:'.*\\.replica'})]})
+  expect(r[0]!.kind).toBe('excluded');expect(r[0]!.facts.join(' ')).toContain('mm2-a-b');expect(r[0]!.facts.join(' ')).toContain('.*\\.replica')
   expect(r[0]!.actions.some(a=>a.to?.includes('/links/L1'))).toBe(true)
  })
  it('④ stale snapshot or unparseable rule',()=>{
   expect(classifyLineage({...base,snapshotStale:true,result:rootOnly(),links:[rule({stale:true})]}).map(x=>x.kind)).toContain('untrusted')
-  expect(classifyLineage({...base,result:{...rootOnly(),issues:[{code:'FILTER_UNKNOWN',message:'x',link_id:'L1'}]},links:[rule({topics_raw:'(?<x>a)'})]}).map(x=>x.kind)).toContain('untrusted')
+  expect(classifyLineage({...base,result:{...rootOnly(),issues:[{code:'FILTER_UNKNOWN',message:'x',link_id:'L1'}]},links:[rule({topics_raw:'(?<x>a)'})]}).map(x=>x.kind)).toContain('unparsed')
  })
  it('⑤ depth or read budget reached',()=>{
   const deep=chain([['a','b','L1'],['b','c','L2']]);deep.depth=2
@@ -193,5 +193,49 @@ describe('same-name topic on an unconnected cluster (LUNA-29)',()=>{
   expect(r.graph.nodes.some(n=>n.cluster_id==='zz')).toBe(false)
   expect(r.graph.edges.some(e=>e.source==='topic:zz'||e.target==='topic:zz')).toBe(false)
   expect(r.sources).toEqual(['k1']);expect(r.summary).toBe('源头：k1')
+ })
+})
+
+describe('LUNA-31B candidates and wording',()=>{
+ const load=()=>import('./lineage-model')
+ const L=(id:string,s:string,t:string,p:Partial<RuleLink>={}):RuleLink=>rule({id,workload_name:`mm2-${s}-${t}`,source:{registration_id:s,status:'confirmed'},target:{registration_id:t,status:'confirmed'},topics_exclude_raw:'.*[\\-\\.]internal, .*\\.replica, __.*',...p})
+ const lab=[['k1','k2'],['k1','k3'],['k1','k4'],['k2','k5'],['k3','k6'],['k4','k7'],['k5','k8'],['k6','k8'],['k7','k8'],['k8','k9']].map(([s,t],i)=>L('L'+i,s!,t!))
+ it('classifies candidates: syncing, internal, excluded, pending, none',async()=>{
+  const {classifyCandidate}=await load()
+  expect(classifyCandidate('k1','luna-lab-events',lab).kind).toBe('syncing')
+  for(const t of ['heartbeats','mm2-offset-syncs.k2.internal','__consumer_offsets','k1.checkpoints.internal'])expect(classifyCandidate('k1',t,lab).kind).toBe('internal')
+  const ex=classifyCandidate('k1','orders.replica',lab);expect(ex.kind).toBe('excluded');expect(ex.tag).toBe('被规则排除')
+  expect(classifyCandidate('k1','x',[L('A','k1','k2',{topics_raw:'(?<n>x)'})]).kind).toBe('pending')
+  expect(classifyCandidate('k1','x',[L('A','k1','k2',{topics_raw:'payments'})]).kind).toBe('none')
+  expect(classifyCandidate('k1','heartbeats',lab).tag).toBe('MM2 内部');expect(classifyCandidate('k1','x',[L('A','k1','k2',{topics_raw:'(?<n>x)'})]).tag).toBe('同步关系待确认')
+ })
+ it('coverage = downstream clusters reached by the same snapshot rules: k1 luna-lab-events = 8, k4 = 3, unknown = undefined',async()=>{
+  const {syncCoverage}=await load()
+  expect(syncCoverage('k1','luna-lab-events',lab)).toBe(8);expect(syncCoverage('k4','luna-src-k4',lab)).toBe(3);expect(syncCoverage('k9','luna-lab-events',lab)).toBe(0)
+  expect(syncCoverage('k1','x',[L('A','k1','k2',{topics_raw:'(?<n>x)'})])).toBeUndefined()
+  expect(syncCoverage('k1','x',[L('A','k1','k2',{policy:'org.apache.kafka.connect.mirror.DefaultReplicationPolicy'} as Partial<RuleLink>)])).toBeUndefined()
+ })
+ const base={cluster:'a',topic:'orders',depth:2,direction:'both' as const,snapshotStale:false}
+ const root=(t='orders'):Lineage=>({...chain([]),root_id:`topic:a:${t}`,nodes:[T('a',t)]})
+ it('three fixed sentences; never 配置暂不可信 or 无法解析',async()=>{
+  const none=classifyLineage({...base,result:root(),links:[rule({topics_raw:'payments'})]})
+  expect(none[0]!.facts).toEqual(['该 Topic 未被任何同步规则选中，因此没有跨集群链路。']);expect(none[0]!.actions[0]).toEqual({label:'去 MM2 拓扑查看各任务的 Topic 规则',to:'/topology?view=mm2'})
+  const internal=classifyLineage({...base,topic:'mm2-offset-syncs.b.internal',result:root('mm2-offset-syncs.b.internal'),links:[rule({topics_exclude_raw:'.*[\\-\\.]internal'})]})
+  expect(internal.map(r=>r.kind)).toEqual(['internal']);expect(internal[0]!.facts).toEqual(['这是 MM2/Kafka 内部 Topic，不参与业务同步，通常无需追踪。'])
+  const ex=classifyLineage({...base,topic:'x.replica',result:root('x.replica'),links:[rule({topics_exclude_raw:'.*\\.replica'})]})
+  expect(ex[0]!.facts).toEqual(['该 Topic 被 mm2-a-b 的排除规则排除：.*\\.replica。'])
+  expect(JSON.stringify([none,internal,ex])).not.toMatch(/配置暂不可信|无法解析/)
+ })
+ it('HEARTBEAT_POLICY_UNKNOWN is classified as internal without raw rules',async()=>{
+  const r=classifyLineage({...base,topic:'heartbeats',result:{...root('heartbeats'),issues:[{code:'HEARTBEAT_POLICY_UNKNOWN',message:'x',link_id:'L1'},{code:'HEARTBEAT_POLICY_UNKNOWN',message:'x',link_id:'L2'}]},links:[rule({}),rule({id:'L2',workload_name:'mm2-b-c'})]})
+  expect(r.map(x=>x.kind)).toEqual(['internal']);expect(JSON.stringify(r)).not.toMatch(/无法解析|\.\*|配置暂不可信/)
+ })
+ it('unparsed rules: four parts, one per task, at most 3 shown, rest folded',async()=>{
+  const ids=['L1','L1','L2','L3','L4','L5'],links=['L1','L2','L3','L4','L5'].map(id=>rule({id,workload_name:'task-'+id,topics_raw:'(?<n>x),orders'}))
+  const r=classifyLineage({...base,result:{...root(),issues:ids.map((link_id,i)=>({code:i%2?'SEMANTICS_UNKNOWN':'FILTER_UNKNOWN',message:'x',link_id}))},links})
+  const u=r.find(x=>x.kind==='unparsed')!
+  expect(u.title).toBe('5 个同步任务的规则无法解析');expect(u.groups).toHaveLength(3);expect(u.more).toBe(2)
+  const g=u.groups![0]!;expect(g.task).toBe('task-L1');expect(g.where).toContain('(?<n>x)');expect(g.impact).toBe('结果可能不完整，不代表没有同步。');expect(g.to).toBe('/topology/readonly-lab/links/L1')
+  expect(r.filter(x=>x.kind==='unparsed')).toHaveLength(1)
  })
 })

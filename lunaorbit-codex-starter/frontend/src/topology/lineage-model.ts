@@ -3,10 +3,11 @@ import type { Direction, Lineage, LineageEdge, LineageNode } from '../api/topic-
 export interface RuleLink {
  id:string;workload_name:string;enabled:boolean;topics_raw:string;topics_exclude_raw:string
  source:{registration_id?:string;status:string};target:{registration_id?:string;status:string}
- semantics_known:boolean;stale:boolean
+ semantics_known:boolean;stale:boolean;policy?:string
 }
 export interface LineageView {nodes:LineageNode[];edges:(LineageEdge&{label?:string;linkId?:string;mm2Id?:string})[]}
-export interface Reason {kind:'unreadable'|'no_rule'|'excluded'|'untrusted'|'budget'|'unmapped';title:string;facts:string[];actions:{label:string;to?:string;action?:'refresh'|'deeper'|'retry'}[]}
+export interface UnparsedGroup {task:string;where:string;impact:string;to:string}
+export interface Reason {kind:'unreadable'|'no_rule'|'excluded'|'internal'|'untrusted'|'unparsed'|'budget'|'unmapped';title:string;facts:string[];actions:{label:string;to?:string;action?:'refresh'|'deeper'|'retry'}[];groups?:UnparsedGroup[];more?:number}
 export interface Conditions {cluster:string;topic:string;direction:Direction;depth:number}
 
 const policyName=(p?:string)=>p?.endsWith('IdentityReplicationPolicy')?'Identity':p?.endsWith('DefaultReplicationPolicy')?'Default':p?p.split('.').at(-1)!:'策略未知'
@@ -39,7 +40,43 @@ export function matchesRule(raw:string,topic:string):boolean|undefined {
 }
 
 const BUDGET=new Set(['READ_BUDGET','TRAVERSAL_TRUNCATED','DEADLINE_REACHED','TRUNCATED','LINKS_TRUNCATED','CLUSTERS_TRUNCATED'])
-const UNTRUSTED=new Set(['SEMANTICS_UNKNOWN','FILTER_UNKNOWN','POLICY_UNKNOWN','CONFLICTING_DECLARATIONS','DISCOVERY_UNAVAILABLE','HEARTBEAT_POLICY_UNKNOWN','TARGET_NAME_UNKNOWN'])
+const UNTRUSTED=new Set(['POLICY_UNKNOWN','CONFLICTING_DECLARATIONS','DISCOVERY_UNAVAILABLE','TARGET_NAME_UNKNOWN'])
+const UNPARSED=new Set(['FILTER_UNKNOWN','SEMANTICS_UNKNOWN'])
+const MM2_RULES='/topology?view=mm2'
+/** MM2 / Kafka internal topics: never business replication. */
+export function isInternalTopic(t:string):boolean {return /^__/.test(t)||/(^|\.)heartbeats$/.test(t)||/^mm2-/.test(t)||/[.-]internal$/.test(t)||/^connect-(configs|offsets|status)/.test(t)}
+const relevantLinks=(c:string,links:RuleLink[])=>links.filter(l=>l.enabled&&(l.source.registration_id===c||l.target.registration_id===c))
+export type CandidateKind='syncing'|'internal'|'excluded'|'pending'|'none'
+const TAG:Record<CandidateKind,string>={syncing:'',internal:'MM2 内部',excluded:'被规则排除',pending:'同步关系待确认',none:'未被规则选中'}
+/** Search candidate class for a topic on cluster c, from the same snapshot rules the lineage uses. */
+export function classifyCandidate(c:string,topic:string,links:RuleLink[]):{kind:CandidateKind;tag:string;by?:RuleLink} {
+ const out=(kind:CandidateKind,by?:RuleLink)=>({kind,tag:TAG[kind],...(by?{by}:{})})
+ if(isInternalTopic(topic))return out('internal')
+ let pending=false,excludedBy:RuleLink|undefined
+ for(const l of relevantLinks(c,links)){
+  const inc=matchesRule(l.topics_raw,topic),exc=l.topics_exclude_raw?matchesRule(l.topics_exclude_raw,topic):false
+  if(inc===undefined||(inc&&exc===undefined)||!l.semantics_known){pending=true;continue}
+  if(inc&&!exc)return out('syncing')
+  if(inc&&exc)excludedBy??=l
+ }
+ return pending?out('pending'):excludedBy?out('excluded',excludedBy):out('none')
+}
+/** Clusters reached downstream by enabled rules selecting this (Identity-named) topic; undefined when not computable. */
+export function syncCoverage(c:string,topic:string,links:RuleLink[]):number|undefined {
+ const seen=new Set([c]),q=[c]
+ for(let i=0;i<q.length;i++)for(const l of links){
+  if(!l.enabled||l.source.registration_id!==q[i]||!l.target.registration_id)continue
+  if(l.policy&&!l.policy.endsWith('IdentityReplicationPolicy'))return undefined
+  const inc=matchesRule(l.topics_raw,topic),exc=l.topics_exclude_raw?matchesRule(l.topics_exclude_raw,topic):false
+  if(inc===undefined||exc===undefined||!l.semantics_known)return undefined
+  if(inc&&!exc&&!seen.has(l.target.registration_id)){seen.add(l.target.registration_id);q.push(l.target.registration_id)}
+ }
+ return seen.size-1
+}
+function unsupportedPart(l:RuleLink):string {
+ for(const [label,raw] of [['包含规则',l.topics_raw],['排除规则',l.topics_exclude_raw]] as const)for(const part of raw.split(',').map(x=>x.trim()).filter(Boolean))if(matchesRule(part,'')===undefined)return `${label}「${part}」使用了平台暂不支持的正则写法`
+ return '命名策略或 Topic 筛选器为平台暂不支持的写法'
+}
 const linkPath=(id:string)=>`/topology/readonly-lab/links/${encodeURIComponent(id)}`
 
 /** Hop distance (cross-cluster) from the root over MM2 edges, both directions. */
@@ -56,20 +93,27 @@ export function classifyLineage(input:Conditions&{result:Lineage;links:RuleLink[
  const stale=input.snapshotStale||links.some(l=>l.stale)
  const untrustedIssues=result.issues.filter(i=>UNTRUSTED.has(i.code))
  if(stale||untrustedIssues.length){
-  const facts=[...(stale?['数据已过期，不代表没有关系；配置采集时间之后的变化未反映。']:[]),...untrustedIssues.filter(i=>i.code!=='SEMANTICS_UNKNOWN'||!stale).map(i=>{const l=links.find(x=>x.id===i.link_id);return l?`MM2 ${l.workload_name} 的规则暂无法解析：${l.topics_raw}${l.topics_exclude_raw?'；排除 '+l.topics_exclude_raw:''}`:i.message})]
-  reasons.push({kind:'untrusted',title:stale?'配置暂不可信：快照过期':'配置暂不可信：规则无法解析',facts:[...new Set(facts)],actions:[{label:'刷新发现快照',action:'refresh'},{label:'查看规则与任务',to:'/topology?view=tasks'}]})
+  const facts=[...(stale?['数据已过期，不代表没有关系；配置采集时间之后的变化未反映。']:[]),...untrustedIssues.map(i=>i.message)]
+  reasons.push({kind:'untrusted',title:stale?'配置暂不可信：快照过期':'配置暂不可信',facts:[...new Set(facts)],actions:[{label:'刷新发现快照',action:'refresh'},{label:'查看规则与任务',to:'/topology?view=tasks'}]})
  }
+ const unparsedIds=[...new Set(result.issues.filter(i=>UNPARSED.has(i.code)&&!(stale&&i.code==='SEMANTICS_UNKNOWN')).map(i=>i.link_id??i.message))]
+ if(unparsedIds.length){
+  const groups=unparsedIds.map(id=>{const l=links.find(x=>x.id===id);return {task:l?.workload_name??id,where:l?unsupportedPart(l):'规则中有平台暂不支持的写法',impact:'结果可能不完整，不代表没有同步。',to:l?linkPath(l.id):MM2_RULES}})
+  reasons.push({kind:'unparsed',title:`${groups.length} 个同步任务的规则无法解析`,facts:[],groups:groups.slice(0,3),more:Math.max(0,groups.length-3),actions:[{label:'在 MM2 拓扑查看',to:MM2_RULES}]})
+ }
+ const internalHit=isInternalTopic(topic)||codes.has('HEARTBEAT_POLICY_UNKNOWN')
  const unmapped=result.issues.filter(i=>i.code==='UNRESOLVED_MAPPING')
  if(unmapped.length)reasons.push({kind:'unmapped',title:'集群映射未确认',facts:[...new Set(unmapped.map(i=>{const l=links.find(x=>x.id===i.link_id);return l?`MM2 ${l.workload_name} 的集群别名尚未确认对应哪个 Kafka 集群，已保留已知路径。`:i.message}))],actions:[{label:'查看集群映射',to:'/topology?view=mm2'},...unmapped.flatMap(i=>i.link_id?[{label:'查看 MM2 配置',to:linkPath(i.link_id)}]:[]).slice(0,1)]})
  // Depth: a boundary node at the maximum hop that still has a matching enabled rule onwards.
  const d=hops(view,result.root_id),boundary=view.nodes.filter(n=>n.kind==='topic'&&d.get(n.id)===result.depth)
  const onward=boundary.some(n=>links.some(l=>l.enabled&&((direction!=='upstream'&&l.source.registration_id===n.cluster_id)||(direction!=='downstream'&&l.target.registration_id===n.cluster_id))&&matchesRule(l.topics_raw,n.topic??n.label)===true&&!view.edges.some(e=>e.linkId===l.id&&(e.source===n.id||e.target===n.id))))
  if(result.truncated||result.issues.some(i=>BUDGET.has(i.code))||onward)reasons.push({kind:'budget',title:onward&&!result.truncated?'已达到深度上限':'已达到读取预算',facts:[onward?`当前查询深度 ${result.depth}，已展示至第 ${result.depth} 跳；更深关系尚未查询，不代表不存在。`:'已达到查询读取预算或时限，部分关系未展开。'],actions:[...(result.depth<4?[{label:'增加一层并重新查询',action:'deeper' as const}]:[]),{label:'以边界节点为新起点',action:'retry'}]})
- if(!replication.length&&!reasons.some(r=>r.kind==='unreadable'||r.kind==='untrusted'||r.kind==='unmapped')){
+ if(internalHit&&!replication.length)reasons.push({kind:'internal',title:'MM2/Kafka 内部 Topic',facts:['这是 MM2/Kafka 内部 Topic，不参与业务同步，通常无需追踪。'],actions:[{label:'重新选择 Topic',action:'retry'}]})
+ else if(!replication.length&&!reasons.some(r=>r.kind==='unreadable'||r.kind==='untrusted'||r.kind==='unparsed'||r.kind==='unmapped')){
   const relevant=links.filter(l=>l.enabled&&((direction!=='upstream'&&l.source.registration_id===cluster)||(direction!=='downstream'&&l.target.registration_id===cluster)))
   const excluded=relevant.filter(l=>matchesRule(l.topics_raw,topic)===true&&!!l.topics_exclude_raw&&matchesRule(l.topics_exclude_raw,topic)===true)
-  if(excluded.length)reasons.push({kind:'excluded',title:'Topic 被排除规则排除',facts:excluded.map(l=>`被 MM2 ${l.workload_name} 的排除规则命中：${l.topics_exclude_raw}`),actions:excluded.map(l=>({label:`查看 ${l.workload_name}`,to:linkPath(l.id)}))})
-  else if(!relevant.some(l=>matchesRule(l.topics_raw,topic)===true))reasons.push({kind:'no_rule',title:'没有 MM2 规则选中此 Topic',facts:[`当前配置中没有启用的 MM2 包含规则匹配「${topic}」；这是配置结论，不代表没有真实数据流。`],actions:[{label:'查看候选 MM2 与包含规则',to:'/topology?view=tasks'},{label:'调整 Topic 或方向',action:'retry'}]})
+  if(excluded.length)reasons.push({kind:'excluded',title:'Topic 被排除规则排除',facts:excluded.map(l=>`该 Topic 被 ${l.workload_name} 的排除规则排除：${l.topics_exclude_raw}。`),actions:excluded.map(l=>({label:`查看 ${l.workload_name}`,to:linkPath(l.id)}))})
+  else if(!relevant.some(l=>matchesRule(l.topics_raw,topic)===true))reasons.push({kind:'no_rule',title:'未被同步规则选中',facts:['该 Topic 未被任何同步规则选中，因此没有跨集群链路。'],actions:[{label:'去 MM2 拓扑查看各任务的 Topic 规则',to:MM2_RULES}]})
  }
  return reasons
 }
