@@ -8,7 +8,9 @@ import TopologyTasks from '../components/TopologyTasks.vue'
 import ObservabilityPanel from '../components/ObservabilityPanel.vue'
 import { ApiError } from '../api/client'
 import { ensureSession,registryRequest,type Cluster,type ClusterPage } from '../api/registry'
-import { readSnapshot,scopePath,viewPath,type Snapshot,type View,type Position,type Job } from '../api/topology'
+import { readSnapshot,scopePath,viewPath,type Snapshot,type View,type Position,type Job,type ScopeInfo,type ScopeEntry } from '../api/topology'
+import ScopeBar from '../components/ScopeBar.vue'
+import { filterByScope,groupByScope,mergeEntries,needsScopeBar,scopeSummary,withScopeNames } from '../topology/scopes'
 import { filterGraph,mappingLabel,mappingName,nodeIdentity,unknown } from '../topology/model'
 
 import { buildPresentation,focusPresentation,tracePaths } from '../topology/presentation'
@@ -53,7 +55,17 @@ async function toggleFullscreen(){
 }
 function onFullscreen(){fullscreen.value=!!globalThis.document.fullscreenElement;void nextTick(()=>canvas.value?.fit())}
 const mappingSelections=ref<Record<string,string>>({})
-const scopes=ref<{id:string;synthetic:boolean}[]>([]),scope=ref(''),snapshot=ref<Snapshot>(),clusters=ref<Cluster[]>([])
+const scopes=ref<ScopeInfo[]>([]),scope=ref(''),snapshot=ref<Snapshot>(),clusters=ref<Cluster[]>([])
+// Auto discovery: one scope per Kubernetes cluster, merged into one graph.
+const entries=ref<ScopeEntry[]>([]),includeRemoved=ref(false),scopeCluster=ref(''),scopeNamespace=ref(''),dismissedFresh=ref<string[]>([])
+const autoMode=computed(()=>scopes.value.some(s=>s.auto))
+const showScopeBar=computed(()=>autoMode.value&&needsScopeBar(entries.value))
+const summary=computed(()=>scopeSummary(entries.value))
+const scopeClusters=computed(()=>[...new Set(entries.value.filter(e=>includeRemoved.value||!e.scope.removed).map(e=>e.scope.k8s_cluster??e.scope.id))].sort())
+const scopeNamespaces=computed(()=>{const seen=new Map<string,{cluster:string;namespace:string}>();for(const l of snapshot.value?.links??[])if(l.k8s_cluster)seen.set(l.k8s_cluster+'/'+l.namespace,{cluster:l.k8s_cluster,namespace:l.namespace});return [...seen.values()].sort((a,b)=>(a.cluster+a.namespace).localeCompare(b.cluster+b.namespace))})
+const scoped=computed(()=>snapshot.value&&autoMode.value?withScopeNames(filterByScope(snapshot.value,scopeCluster.value,scopeNamespace.value),showScopeBar.value):snapshot.value)
+const scopeGroups=computed(()=>showScopeBar.value&&visible.value?groupByScope(visible.value.links,summary.value.suspected.filter(w=>!scopeCluster.value||w.k8s_cluster===scopeCluster.value)):[])
+watch(includeRemoved,()=>{if(autoMode.value&&entries.value.length)snapshot.value=mergeEntries(entries.value,{includeRemoved:includeRemoved.value})})
 const positions=ref<Record<string,Position>>({}),filters=ref({room:'',environment:''}),layers=ref({kafka:true,workloads:true})
 const includeDisabled=ref(false),mode=shallowRef<'mm2'|'relations'|'instances'|'tasks'>(route?.query.view==='relations'?'relations':route?.query.view==='tasks'?'tasks':route?.query.view==='instances'?'instances':'mm2')
 const focusDirection=ref<'neighbors'|'upstream'|'downstream'>('neighbors'),routeLinkIds=ref<string[]>([])
@@ -66,7 +78,7 @@ const graphMode=computed(()=>mode.value==='relations'?'pairs' as const:'clusters
 const clusterGraph=computed(()=>visible.value?buildClusterPresentation(visible.value):undefined)
 // The MM2 task list follows the same rule as the graph: disabled tasks are hidden and uncounted unless shown.
 const taskLinks=computed(()=>(visible.value?.links??[]).filter(l=>includeDisabled.value||!isDisabledLink(l)))
-const relationSource=computed(()=>snapshot.value?filterGraph(snapshot.value,clusters.value,filters.value,{kafka:true,workloads:true},true):undefined)
+const relationSource=computed(()=>scoped.value?filterGraph(scoped.value,clusters.value,filters.value,{kafka:true,workloads:true},true):undefined)
 const pairCounts=computed(()=>relationSource.value?relationCounts(relationSource.value):{enabled:0,disabled:0})
 const readyTasks=computed(()=>(clusterGraph.value?.edges??[]).filter(e=>{const l=visible.value?.links.find(x=>x.id===e.linkIds[0]) as {runtime?:{ready_replicas:number;replicas:number}}|undefined;return !!l?.runtime&&l.runtime.replicas>0&&l.runtime.ready_replicas>=l.runtime.replicas}).length)
 const relationPanel=computed(()=>{
@@ -77,7 +89,7 @@ const relationPanel=computed(()=>{
  return {...summary,title:`${label(edge.source)} → ${label(edge.target)}`}
 })
 const detailFacts=computed(()=>detail.value?{evidence:evidenceType(detail.value),...linkFacts(detail.value,!!snapshot.value?.stale)}:undefined)
-const disabledCount=computed(()=>snapshot.value?filterGraph(snapshot.value,clusters.value,filters.value,{kafka:true,workloads:true},true).links.filter(isDisabledLink).length:0)
+const disabledCount=computed(()=>scoped.value?filterGraph(scoped.value,clusters.value,filters.value,{kafka:true,workloads:true},true).links.filter(isDisabledLink).length:0)
 const lineageCounts=computed(()=>{if(!clusterGraph.value||!selectedNode.value)return undefined;const r=lineage(clusterGraph.value,selectedNode.value);return {upstream:r.upstream.length,downstream:r.downstream.length}})
 const chainGraph=computed(()=>visible.value?buildPresentation(visible.value,'chain'):undefined)
 const pathNodes=computed(()=>visible.value?.nodes.filter(n=>n.kind==='kafka').map(n=>({id:n.id,name:nodeIdentity(visible.value!,n.id,clusters.value)}))??[])
@@ -110,7 +122,7 @@ const revision=ref(0),busy=ref(false),ready=ref(false),dirty=ref(false),error=re
 const canvas=ref<InstanceType<typeof TopologyCanvas>>()
 const affectedNodes=ref<string[]>([]),confirmedLinks=ref<string[]>([]),selectedNode=ref('')
 let epoch=0,disposed=false
-const visible=computed(()=>snapshot.value?filterGraph(snapshot.value,clusters.value,filters.value,{kafka:true,workloads:true},includeDisabled.value):undefined)
+const visible=computed(()=>scoped.value?filterGraph(scoped.value,clusters.value,filters.value,{kafka:true,workloads:true},includeDisabled.value):undefined)
 watch(pathResults,()=>{if(pathKey.value&&!chosenPath.value)pathKey.value=''})
 watch(visible,()=>{
  const graph=visible.value
@@ -152,11 +164,44 @@ async function loadView(id:number,selectedScope:string) {
  revision.value=view.revision;filters.value=view.filters;layers.value=view.layers
  savedPositions.value={...view.positions};restorePositions();dirty.value=false
 }
+async function readEntries(list:ScopeInfo[]):Promise<ScopeEntry[]>{
+ return Promise.all(list.filter(s=>!s.synthetic).map(async scope=>{
+  try{return {scope,snapshot:await readSnapshot(scope.id)}}
+  catch(e){return {scope,error:e instanceof ApiError&&e.status===404?'NO_SNAPSHOT':message(e)}}
+ }))
+}
+/** Reads every scope independently; one failing scope never blocks the others. */
+async function loadAll(id:number):Promise<boolean>{
+ const list=await registryRequest<{items:ScopeInfo[]}>('/discovery/scopes');if(!current(id))return false
+ scopes.value=list.items
+ const [rows,registry]=await Promise.all([readEntries(list.items),allClusters()]);if(!current(id))return false
+ entries.value=rows;clusters.value=registry
+ if(!rows.some(e=>e.snapshot)&&rows.some(e=>!e.scope.removed)&&runtime.value?.capabilities.discovery===true){busy.value=false;await discover();return false}
+ snapshot.value=mergeEntries(rows,{includeRemoved:includeRemoved.value})
+ return true
+}
+async function runScope(scopeId:string,id:number){
+ try{await registryRequest(scopePath(scopeId)+'/runs','POST',{scenario:scenario.value})}catch(e){if(e instanceof ApiError&&e.code==='SCOPE_REMOVED')return 'SCOPE_REMOVED';throw e}
+ for(let attempt=0;attempt<30&&current(id);attempt++){const job=await registryRequest<Job>(scopePath(scopeId)+'/runs/latest');if(job.status==='done')return job.error_code??'';await new Promise(r=>globalThis.setTimeout(r,300))}
+ return 'PENDING'
+}
+async function discoverScopes(ids:string[]){
+ const id=++epoch;busy.value=true;error.value='';notice.value='正在读取资源…'
+ try{
+  const results:string[]=[];for(const scopeId of ids){results.push(await runScope(scopeId,id));if(!current(id))return}
+  const rows=await readEntries(scopes.value);if(!current(id))return
+  entries.value=rows;snapshot.value=mergeEntries(rows,{includeRemoved:includeRemoved.value});restorePositions()
+  if(!ready.value)await loadView(id,scope.value)
+  if(!current(id))return;ready.value=true
+  notice.value=results.some(Boolean)?'部分范围未完整成功；请查看范围栏中的失败项。':'资源发现完成；链路健康仍未验证'
+ }catch(e){if(current(id))error.value=message(e)}finally{if(current(id))busy.value=false}
+}
 async function reload() {
  affectedNodes.value=[];confirmedLinks.value=[];selectedNode.value='';routeLinkIds.value=[];pathSource.value='';pathTarget.value='';pathKey.value=''
  const id=++epoch,selectedScope=scope.value
  busy.value=true;error.value='';notice.value='';selected.value='';snapshot.value=undefined;ready.value=false;positions.value={};dirty.value=false
  try {
+  if(autoMode.value){if(!await loadAll(id))return;await loadView(id,selectedScope);if(current(id))ready.value=true;return}
   const [s,registry]=await Promise.all([readSnapshot(selectedScope),allClusters()])
   if(!current(id))return
   snapshot.value=s;clusters.value=registry;await loadView(id,selectedScope)
@@ -166,7 +211,7 @@ async function reload() {
 }
 onMounted(async()=>{
  globalThis.document.addEventListener('fullscreenchange',onFullscreen)
- try{await ensureSession();if(disposed)return;const data=await registryRequest<{items:{id:string;synthetic:boolean}[]}>('/discovery/scopes');if(disposed)return;scopes.value=data.items;scope.value=data.items.find(item=>item.id===route?.query.scope)?.id??data.items[0]?.id??'';if(scope.value)await reload();else error.value='暂无可用的发现范围'}
+ try{await ensureSession();if(disposed)return;const data=await registryRequest<{items:ScopeInfo[]}>('/discovery/scopes');if(disposed)return;scopes.value=data.items;scope.value=data.items.find(item=>item.id===route?.query.scope)?.id??data.items[0]?.id??'';if(scope.value)await reload();else error.value='暂无可用的发现范围'}
  catch(e){if(!disposed)error.value=e instanceof ApiError&&e.status===404?'发现接口未启用，请使用 discovery-backend 启动。':message(e)}
 })
 onMounted(()=>{globalThis.document.addEventListener('pointerdown',onDocPointer);globalThis.document.addEventListener('keydown',onDocKey)})
@@ -190,6 +235,7 @@ async function save(){
 }
 async function discover(){
  if(runtime.value?.capabilities.discovery !== true)return
+ if(autoMode.value){await discoverScopes(scopes.value.filter(s=>!s.synthetic&&!s.removed).map(s=>s.id));return}
  const id=++epoch,selectedScope=scope.value;busy.value=true;error.value='';notice.value=runtime.value?.mode === 'mock'?'正在读取合成资源…':'正在读取资源…'
  try{
   await registryRequest(scopePath(selectedScope)+'/runs','POST',{scenario:scenario.value})
@@ -214,9 +260,9 @@ async function confirmMapping(alias:string){
  if(!link||!registrationId||busy.value)return
  const id=epoch,selectedScope=scope.value;busy.value=true;error.value=''
  try{
-  await registryRequest(scopePath(selectedScope)+'/bindings','PUT',{namespace:link.namespace,workload_uid:link.workload_uid,alias,registration_id:registrationId})
+  await registryRequest(scopePath(link.scope_id??selectedScope)+'/bindings','PUT',{namespace:link.namespace,workload_uid:link.workload_uid,alias,registration_id:registrationId})
   if(current(id))await discover()
- }catch(e){if(current(id))error.value=message(e)}finally{if(current(id))busy.value=false}
+ }catch(e){if(current(id))error.value=e instanceof ApiError&&e.code==='SCOPE_REMOVED'?'该 K8s 集群已被 Kite 移除，不能新增绑定；历史快照和已有绑定仍保留。':message(e)}finally{if(current(id))busy.value=false}
 }</script>
 <template>
   <section class="topology registry">
@@ -225,14 +271,16 @@ async function confirmMapping(alias:string){
     <div class="filter-bar topology-toolbar panel">
       <div class="view-switch" aria-label="拓扑视图"><button data-mode="mm2" :aria-pressed="mode==='mm2'" @click="changeMode('mm2')">MM2 拓扑</button><button data-mode="relations" :aria-pressed="mode==='relations'" @click="changeMode('relations')">同步关系</button><button data-mode="instances" :aria-pressed="mode==='instances'" @click="changeMode('instances')">按实例查看</button><button data-mode="tasks" :aria-pressed="mode==='tasks'" @click="changeMode('tasks')">同步任务</button></div>
       <div v-if="mode!=='tasks'" class="cluster-search"><input v-model="search" data-cluster-search aria-label="搜索集群" placeholder="搜索集群" autocomplete="off" @keydown.esc="search=''" /><ul v-if="search.trim()" class="search-results"><li v-for="node in searchResults" :key="node.id"><button :data-search-node="node.id" @click="chooseSearch(node.id)">{{ node.name }}</button></li><li v-if="!searchResults.length" class="search-empty">当前筛选下没有匹配集群</li></ul></div>
-      <label v-if="scopes.length>1">范围 <select v-model="scope" :disabled="busy" @change="reload"><option v-for="s in scopes" :key="s.id" :value="s.id">{{ s.id }}</option></select></label>
+      <label v-if="scopes.length>1&&!autoMode">范围 <select v-model="scope" :disabled="busy" @change="reload"><option v-for="s in scopes" :key="s.id" :value="s.id">{{ s.id }}</option></select></label>
       <label>机房 <select v-model="filters.room" aria-label="机房筛选" @change="dirty=true;selected='' "><option value="">全部</option><option :value="unknown">未知 / 待确认</option><option v-for="r in rooms" :key="r" :value="r">{{ r }}</option></select></label>
       <label>环境 <select v-model="filters.environment" aria-label="环境筛选" @change="dirty=true;selected='' "><option value="">全部</option><option :value="unknown">未知 / 待确认</option><option v-for="e in environments" :key="e" :value="e">{{ e }}</option></select></label>
       <button class="button-primary toolbar-refresh" data-discover :disabled="busy||!scope||runtime?.capabilities.discovery!==true" @click="discover">{{ busy?'刷新中…':'刷新' }}</button>
       <span v-if="dirty&&canvasTab" data-unsaved class="unsaved-note">有未保存的布局改动<button data-inline-save :disabled="busy" @click="save">保存</button></span>
       <details ref="moreEl" class="topology-more"><summary>更多<span v-if="dirty" class="dirty-dot" aria-label="有未保存改动"></span></summary><div class="more-menu"><label><input v-model="includeDisabled" data-show-disabled type="checkbox"> {{ mode==='relations'?`显示禁用关系（${pairCounts.disabled}）`:`显示禁用任务（${disabledCount}）` }}</label><template v-if="canvasTab"><button :disabled="busy||layoutBusy||!!chosenPath" @click="closeMore();reset()">整理布局</button><button data-save :disabled="busy||!dirty" @click="closeMore();save()">保存个人视图</button></template><button data-reload-view :disabled="busy||!scope" @click="confirmReload">重新加载视图{{ dirty?'（丢弃未保存改动）':'' }}</button><span v-if="canvasTab" class="helper-text">视图版本 {{ revision }}{{ dirty?' · 有未保存改动':'' }}</span><label v-if="runtime?.mode==='mock'">Mock 场景 <select v-model="scenario" :disabled="busy"><option value="success">成功采集</option><option value="partial_failure">部分失败</option><option value="unavailable">服务不可用</option></select></label></div></details>
     </div>
+    <ScopeBar v-if="showScopeBar" v-model:cluster="scopeCluster" v-model:namespace="scopeNamespace" v-model:include-removed="includeRemoved" :summary="summary" :clusters="scopeClusters" :namespaces="scopeNamespaces" :observed-at="snapshot?.attempted_at??''" :busy="busy" :dismissed="dismissedFresh" @refresh="discover" @retry="discoverScopes([$event])" @dismiss="dismissedFresh=[...dismissedFresh,$event]" />
     <template v-if="ready&&snapshot&&visible">
+      <div v-if="mode==='mm2'&&scopeGroups.length" class="scope-groups panel" aria-label="按 K8s 集群分组"><details v-for="g in scopeGroups" :key="g.cluster" :data-scope-group="g.cluster" class="scope-group"><summary><strong>{{ g.cluster }}</strong> · {{ g.namespaces.length }} 命名空间 · {{ g.confirmed }} 已确认 MM2 · {{ g.suspected }} 待确认</summary><details v-for="n in g.namespaces" :key="n.namespace" class="scope-ns"><summary>命名空间 {{ n.namespace }} · {{ n.links.length }} 条同步规则</summary><button v-for="l in n.links" :key="l.id" :data-scope-link="l.id" :title="l.name" @click="selectLink(l.id)">{{ l.name.split(' / ').at(-1) }}</button></details></details></div>
       <div v-if="mode==='relations'||mode==='mm2'" ref="graphShell" class="topology-workspace panel">
         <div class="graph-topline"><div v-if="mode==='relations'" class="topology-legend" aria-label="关系线型图例"><span class="legend-relation">启用</span><span class="legend-relation-faded">过期 / 状态未知</span><span class="legend-relation-off">已禁用</span></div><div v-else class="topology-legend" aria-label="链路状态图例"><span class="legend-verified">已验证</span><span class="legend-unverified">未验证</span><span class="legend-unknown">状态未知</span><span class="legend-stale">过期 / 禁用</span></div><span class="helper-text"><strong class="view-subtitle">{{ mode==='relations'?'集群视角':'同步实现视角' }}</strong> · {{ visible.nodes.filter(n=>n.kind==='kafka').length }} 个集群 · <template v-if="mode==='relations'">{{ includeDisabled?`${pairCounts.enabled+pairCounts.disabled} 对同步关系（启用 ${pairCounts.enabled} · 禁用 ${pairCounts.disabled}）`:`${pairCounts.enabled} 对同步关系（启用）` }}</template><template v-else>{{ clusterGraph?.edges.length??0 }} 条 MM2 任务 · 就绪 {{ readyTasks }}/{{ clusterGraph?.edges.length??0 }}</template></span></div>
         <div v-if="selectedNode" class="focus-controls"><strong>{{ focusName }}</strong><span v-if="lineageCounts" data-lineage-counts>全部上游 {{ lineageCounts.upstream }} 个集群 · 全部下游 {{ lineageCounts.downstream }} 个集群</span><button data-clear-focus @click="clearSelection">显示全部</button></div>
@@ -277,6 +325,10 @@ async function confirmMapping(alias:string){
 
 <style scoped>
 .path-controls{display:flex;align-items:center;gap:10px;padding:12px 18px;background:#f8fafd;border-bottom:1px solid #e9edf4;flex-wrap:wrap;font-size:12px;color:#64748b}.path-controls select{max-width:300px;min-width:130px}.traced-tasks{margin-bottom:16px}.traced-tasks ol{list-style:none;padding:0 16px 16px;margin:0;display:flex;gap:12px;flex-wrap:wrap}.traced-tasks button{text-align:left;font-size:12px;overflow-wrap:anywhere}.topology-heading{display:flex;align-items:baseline;gap:20px;flex-wrap:wrap}.topology-updated{font-size:12px;color:#718099}.topology-toolbar{gap:12px;padding:14px 16px;position:relative;z-index:3;margin-bottom:16px}.topology-toolbar label{font-size:12px;color:#63738a;display:flex;align-items:center;gap:6px}.topology-toolbar select{max-width:150px}.toolbar-refresh{margin-left:auto}.view-switch{display:inline-flex;border:1px solid #d7e0ed;border-radius:6px;overflow:hidden;flex-shrink:0}.view-switch button{border:0;border-radius:0;margin:0;white-space:nowrap}.view-switch button[aria-pressed="true"]{background:#e8f0ff;color:#2357b3;font-weight:600}.cluster-search{position:relative}.cluster-search input{width:160px}.search-results{position:absolute;top:100%;left:0;min-width:260px;max-width:340px;max-height:260px;overflow:auto;padding:6px;margin:4px 0;list-style:none;border:1px solid #dce4ef;background:#fff;border-radius:6px;box-shadow:0 8px 24px #19365516;z-index:8}.search-results button{width:100%;text-align:left;border:0;overflow-wrap:anywhere}.search-empty{padding:12px;font-size:12px;color:#718099}.topology-toolbar.panel{overflow:visible}
+.scope-groups{padding:10px 16px;display:grid;gap:6px;font-size:13px}
+.scope-group>summary{cursor:pointer}
+.scope-ns{margin:6px 0 0 16px}
+.scope-ns button{margin:6px 6px 0 0;font-size:12px}
 .unsaved-note{display:flex;align-items:center;gap:8px;font-size:12px;color:#9a5b12;background:#fff6e8;border:1px solid #f0c98a;border-radius:5px;padding:4px 8px}
 .unsaved-note button{padding:3px 10px}
 .topology-more{position:relative}.topology-more>summary{cursor:pointer;color:#52657d;list-style:none;padding:8px;display:flex;align-items:center;gap:6px;font-size:13px}.dirty-dot{width:6px;height:6px;border-radius:50%;background:#d69a35}.more-menu{position:absolute;right:0;top:100%;min-width:235px;background:#fff;border:1px solid #dce4ef;border-radius:6px;padding:12px;display:grid;gap:8px;box-shadow:0 8px 24px #19365516;z-index:9}.more-menu button{text-align:left}.more-menu label{padding:8px 0}

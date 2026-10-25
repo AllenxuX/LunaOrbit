@@ -69,3 +69,18 @@ export function parallelPair():Snapshot {
  const extra=snapshotFromRows([],[['L11','k1','k2','mm2-k1-k2-extra'],['L12','k1','k2','mm2-k1-k2-legacy',false]])
  return {...s,nodes:[...s.nodes,...extra.nodes.filter(n=>n.kind==='workload')],edges:[...s.edges,...extra.edges],links:[...s.links,...extra.links]}
 }
+
+/** One auto-discovered scope snapshot: rows are [linkId, namespace, workloadName, sourceRegistration, targetRegistration]. */
+export function scopeSnapshot(scope:string,cluster:string,rows:[string,string,string,string,string][],observedAt='2026-10-25T12:00:00Z'):Snapshot {
+ const nodes=new Map<string,GraphNode>(),links:Link[]=[],edges:Snapshot['edges']=[]
+ for(const [id,ns,name,s,t] of rows){
+  for(const k of [s,t])nodes.set('kafka:'+k,{id:'kafka:'+k,kind:'kafka',label:k,registration_id:k,replication_factor:null,rf_status:'unknown'})
+  const w=`workload:${scope}:${ns}:${name}`;nodes.set(w,{id:w,kind:'workload',label:name,replication_factor:null,rf_status:'not_applicable'})
+  const m=(r:string)=>({alias:r,status:'confirmed',method:'manual',confidence:'manual',registration_id:r,candidate_ids:[r]})
+  links.push({id,namespace:ns,workload_uid:'uid-'+id,workload_name:name,source_alias:s,target_alias:t,topics_raw:'.*',policy:'org.apache.kafka.connect.mirror.IdentityReplicationPolicy',enabled:true,confidence:'manual',declared:true,observed:true,verified:false,stale:false,state:'declared',observed_at:observedAt,source:m(s),target:m(t),evidence:[],notes:[],runtime:{generation:1,observed_generation:1,replicas:1,ready_replicas:1,pod_candidates:0,pod_association:'unknown'},k8s_cluster:cluster})
+  edges.push({id:id+':in',source:'kafka:'+s,target:w,link_id:id,relation:'declared_input',stale:false,evidence:[]},{id:id+':out',source:w,target:'kafka:'+t,link_id:id,relation:'declared_output',stale:false,evidence:[]})
+ }
+ return {scope_id:scope,synthetic:false,observed_at:observedAt,attempted_at:observedAt,stale:false,nodes:[...nodes.values()],edges,links,issues:[],
+  workloads:rows.map(r=>({k8s_cluster:cluster,namespace:r[1],name:r[2],workload_uid:'uid-'+r[0],status:'confirmed' as const,signals:['command:connect-mirror-maker.sh']})),
+  scan:{k8s_cluster:cluster,namespaces:3,deployments:9,namespaces_with_mm2:new Set(rows.map(r=>r[1])).size,confirmed:rows.length,suspected:0}}
+}

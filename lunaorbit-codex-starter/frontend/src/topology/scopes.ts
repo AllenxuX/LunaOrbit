@@ -83,3 +83,19 @@ export function filterByScope(s:Snapshot,cluster:string,namespace:string):Snapsh
  const ids=new Set(links.map(l=>l.id)),edges=s.edges.filter(e=>ids.has(e.link_id)),used=new Set(edges.flatMap(e=>[e.source,e.target]))
  return {...s,links,edges,nodes:s.nodes.filter(n=>used.has(n.id)),workloads:(s.workloads??[]).filter(w=>(!cluster||w.k8s_cluster===cluster)&&(!namespace||w.namespace===namespace))}
 }
+
+export interface ScopeGroup { cluster:string;namespaces:{namespace:string;links:{id:string;name:string}[]}[];confirmed:number;suspected:number }
+/** MM2 grouped by K8s cluster, then namespace (only scopes with confirmed links or suspects). */
+export function groupByScope(links:Snapshot['links'],suspected:WorkloadClass[]):ScopeGroup[] {
+ const groups=new Map<string,ScopeGroup>()
+ const group=(c:string)=>groups.get(c)??groups.set(c,{cluster:c,namespaces:[],confirmed:0,suspected:0}).get(c)!
+ const seen=new Set<string>()
+ for(const l of links){
+  const g=group(l.k8s_cluster??'未确认'),key=`${g.cluster}/${l.namespace}/${l.workload_uid}`
+  let ns=g.namespaces.find(n=>n.namespace===l.namespace);if(!ns){ns={namespace:l.namespace,links:[]};g.namespaces.push(ns)}
+  ns.links.push({id:l.id,name:l.workload_name})
+  if(!seen.has(key)){seen.add(key);g.confirmed++}
+ }
+ for(const w of suspected)group(w.k8s_cluster).suspected++
+ return [...groups.values()].sort((a,b)=>a.cluster.localeCompare(b.cluster))
+}
