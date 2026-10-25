@@ -116,16 +116,29 @@ describe('label placement',()=>{
 })
 
 describe('cluster pair relations',()=>{
- it('merges parallel MM2 into one edge labelled ×N and keeps disabled pairs separate',async()=>{
-  const {buildRelationPresentation}=await import('./cluster-presentation'),{parallelPair}=await import('./fixtures')
-  const p=buildRelationPresentation(parallelPair())
+ it('one line per ordered pair; ×N counts only enabled members; disabled member stays listed',async()=>{
+  const {buildRelationPresentation,relationSummary}=await import('./cluster-presentation'),{parallelPair}=await import('./fixtures')
+  const snap=parallelPair(),p=buildRelationPresentation(snap)
   expect(p.nodes).toHaveLength(9);expect(p.edges).toHaveLength(10)
   const k12=p.edges.find(e=>e.source==='k1'&&e.target==='k2')!
-  expect(k12.linkIds.sort()).toEqual(['L01','L11']);expect(k12.label).toBe('×2')
-  expect(p.edges.filter(e=>e.linkIds.length===1).every(e=>e.label===undefined)).toBe(true)
-  expect(p.edges.reduce((n,e)=>n+e.linkIds.length,0)).toBe(11)
+  expect(k12.linkIds.sort()).toEqual(['L01','L11','L12']);expect(k12.label).toBe('×2');expect(k12.state).not.toBe('disabled')
+  expect(p.edges.filter(e=>e!==k12).every(e=>e.label===undefined)).toBe(true)
+  const sum=relationSummary(snap,k12)
+  expect(sum.enabled).toBe(2);expect(sum.disabled).toBe(1)
+  expect(sum.members.find(m=>m.id==='L12')!.counted).toBe(false)
+ })
+ it('disabled-only pairs are hidden by default and shown dashed on request; counts split',async()=>{
+  const {buildRelationPresentation,relationCounts}=await import('./cluster-presentation'),{parallelPair}=await import('./fixtures')
   const all=buildRelationPresentation(parallelPair(),{showDisabled:true})
   expect(all.edges).toHaveLength(20);expect(all.edges.filter(e=>e.state==='disabled')).toHaveLength(10)
+  expect(relationCounts(parallelPair())).toEqual({enabled:10,disabled:10})
+ })
+ it('worst enabled member decides the line style and the summary names it',async()=>{
+  const {buildRelationPresentation,relationSummary}=await import('./cluster-presentation'),{parallelPair}=await import('./fixtures')
+  const snap=parallelPair();snap.links.find(l=>l.id==='L01')!.verified=true;snap.links.find(l=>l.id==='L11')!.stale=true
+  const e=buildRelationPresentation(snap).edges.find(x=>x.source==='k1'&&x.target==='k2')!
+  expect(e.state).toBe('unknown');expect(e.stale).toBe(true)
+  expect(relationSummary(snap,e).worstBy).toBe('mm2-k1-k2-extra')
  })
  it('lineage on the pair view equals lineage on the link view',async()=>{
   const {buildRelationPresentation,lineage}=await import('./cluster-presentation'),{parallelPair}=await import('./fixtures')
@@ -134,15 +147,16 @@ describe('cluster pair relations',()=>{
 })
 
 describe('evidence wording',()=>{
- it('names evidence type separately from runtime status and never calls configuration verified',async()=>{
-  const {evidenceType,statusText}=await import('./cluster-presentation')
+ it('evidence type, enablement, runtime status and freshness are separate fields',async()=>{
+  const {evidenceType,linkFacts}=await import('./cluster-presentation')
   const link={declared:true,observed:false,verified:false,state:'declared',enabled:true,stale:false}
-  expect(evidenceType(link)).toBe('配置关系')
-  expect(evidenceType({...link,observed:true})).toBe('配置关系 · 运行资源已发现')
-  expect(statusText(link,false)).toBe('状态未知')
-  expect(statusText(link,true)).toBe('数据已过期')
-  expect(statusText({...link,enabled:false},false)).toBe('已禁用')
-  expect(statusText({...link,verified:true},false)).toBe('已验证')
-  expect(evidenceType({...link,verified:true})).toBe('配置关系')
+  expect(evidenceType(link)).toBe('配置关系（未验证）')
+  expect(evidenceType({...link,observed:true})).toBe('运行观测')
+  expect(evidenceType(link,true)).toBe('人工确认')
+  expect(linkFacts(link,false)).toEqual({enablement:'启用',status:'状态未知',freshness:'当前'})
+  expect(linkFacts(link,true).freshness).toBe('数据已过期')
+  expect(linkFacts({...link,enabled:false},false).enablement).toBe('已禁用')
+  expect(linkFacts({...link,verified:true},false).status).toBe('状态未知')
+  expect(linkFacts({...link,observed:true,verified:true},false).status).toBe('已验证')
  })
 })

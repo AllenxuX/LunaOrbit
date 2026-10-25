@@ -81,24 +81,43 @@ export function lineage(p:Presentation,id:string):{upstream:string[];downstream:
 }
 
 const rank:Record<PresentationEdge['state'],number>={verified:0,unverified:1,unknown:2,disabled:3}
-/** One edge per ordered cluster pair; parallel MM2 links are merged and labelled ×N. Disabled pairs never merge with active ones. */
+/**
+ * One line per ordered cluster pair. The line carries every member MM2 (enabled and disabled) so the side panel can list them;
+ * ×N counts enabled members only. A pair is disabled only when no member is enabled. Style follows the worst enabled member.
+ */
 export function buildRelationPresentation(snapshot:Snapshot,options:ClusterOptions={}):Presentation {
- const base=buildClusterPresentation(snapshot,{showDisabled:options.showDisabled}),pairs=new Map<string,PresentationEdge>()
- for(const e of base.edges){
-  const key=JSON.stringify([e.source,e.target,e.state==='disabled']),hit=pairs.get(key)
-  if(hit){hit.linkIds.push(...e.linkIds);hit.stale||=e.stale;if(rank[e.state]>rank[hit.state])hit.state=e.state}
-  else pairs.set(key,{id:'pair:'+key,source:e.source,target:e.target,linkIds:[...e.linkIds],state:e.state,stale:e.stale})
+ const all=buildClusterPresentation(snapshot,{showDisabled:true}),pairs=new Map<string,{edge:PresentationEdge;enabled:number}>()
+ for(const e of all.edges){
+  const key=JSON.stringify([e.source,e.target]),active=e.state!=='disabled',hit=pairs.get(key)
+  if(!hit){pairs.set(key,{edge:{id:'pair:'+key,source:e.source,target:e.target,linkIds:[...e.linkIds],state:e.state,stale:active&&e.stale},enabled:active?1:0});continue}
+  hit.edge.linkIds.push(...e.linkIds)
+  if(!active)continue
+  hit.edge.stale||=e.stale
+  hit.edge.state=hit.enabled===0||rank[e.state]>rank[hit.edge.state]?e.state:hit.edge.state
+  hit.enabled++
  }
- const edges=[...pairs.values()].map(e=>e.linkIds.length>1?{...e,label:`×${e.linkIds.length}`}:e).sort((a,b)=>a.id.localeCompare(b.id))
- const presentation={nodes:base.nodes,edges}
+ const edges=[...pairs.values()].filter(p=>p.enabled>0||options.showDisabled).map(p=>p.enabled>1?{...p.edge,label:`×${p.enabled}`}:p.edge).sort((a,b)=>a.id.localeCompare(b.id))
+ const presentation={nodes:all.nodes,edges}
  return options.transform?options.transform(presentation):presentation
 }
 
+export function relationCounts(snapshot:Snapshot):{enabled:number;disabled:number} {
+ const edges=buildRelationPresentation(snapshot,{showDisabled:true}).edges
+ return {enabled:edges.filter(e=>e.state!=='disabled').length,disabled:edges.filter(e=>e.state==='disabled').length}
+}
+
 type EvidenceLink=Pick<Snapshot['links'][number],'declared'|'observed'|'verified'|'state'|'enabled'|'stale'>
-/** Evidence source only; health is reported separately by statusText. */
-export function evidenceType(link:EvidenceLink):string {return link.observed?'配置关系 · 运行资源已发现':'配置关系'}
-export function statusText(link:EvidenceLink,snapshotStale:boolean):string {
- if(snapshotStale||link.stale)return '数据已过期'
- if(isDisabledLink(link))return '已禁用'
- return link.verified?'已验证':'状态未知'
+/** Evidence source only; enablement, runtime status and freshness are separate facts. */
+export function evidenceType(link:EvidenceLink,manuallyConfirmed=false):string {return manuallyConfirmed?'人工确认':link.observed?'运行观测':'配置关系（未验证）'}
+export function linkFacts(link:EvidenceLink,snapshotStale:boolean):{enablement:string;status:string;freshness:string} {
+ return {enablement:isDisabledLink(link)?'已禁用':'启用',status:link.verified&&link.observed?'已验证':'状态未知',freshness:snapshotStale||link.stale?'数据已过期':'当前'}
+}
+
+export interface RelationMember {id:string;name:string;counted:boolean;enablement:string;status:string;freshness:string;evidence:string;observedAt:string}
+export function relationSummary(snapshot:Snapshot,edge:PresentationEdge):{source:string;target:string;enabled:number;disabled:number;members:RelationMember[];worstBy:string} {
+ const links=new Map(snapshot.links.map(l=>[l.id,l])),members:RelationMember[]=[]
+ for(const id of edge.linkIds){const l=links.get(id);if(!l)continue;const f=linkFacts(l,snapshot.stale);members.push({id,name:l.workload_name||id,counted:!isDisabledLink(l),...f,evidence:evidenceType(l),observedAt:l.observed_at||snapshot.observed_at})}
+ const counted=members.filter(m=>m.counted),score=(id:string)=>{const l=links.get(id)!;return (snapshot.stale||l.stale?4:0)+rank[edgeState(l,false)]}
+ const worst=[...counted].sort((a,b)=>score(b.id)-score(a.id)||a.name.localeCompare(b.name))[0]
+ return {source:edge.source,target:edge.target,enabled:counted.length,disabled:members.length-counted.length,members,worstBy:worst?.name??''}
 }

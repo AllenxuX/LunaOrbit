@@ -63,9 +63,9 @@ export function generatedLarge(clusters=40,links=60,seed=11):{snapshot:Snapshot;
  return {snapshot,meta}
 }
 
-/** Current lab plus a second enabled MM2 between k1 and k2: 9 clusters, 10 cluster pairs, 11 enabled links. */
+/** Current lab plus a second enabled and a disabled MM2 on k1→k2: 9 clusters, 10 enabled pairs, 11 enabled MM2. */
 export function parallelPair():Snapshot {
  const s=currentLab()
- const extra=snapshotFromRows([],[['L11','k1','k2','mm2-k1-k2-extra']])
+ const extra=snapshotFromRows([],[['L11','k1','k2','mm2-k1-k2-extra'],['L12','k1','k2','mm2-k1-k2-legacy',false]])
  return {...s,nodes:[...s.nodes,...extra.nodes.filter(n=>n.kind==='workload')],edges:[...s.edges,...extra.edges],links:[...s.links,...extra.links]}
 }
