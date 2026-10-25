@@ -73,6 +73,40 @@ describe('generic layered layout',()=>{
  })
 })
 
+describe('full lineage',()=>{
+ const ids=(r:{upstream:string[];downstream:string[]})=>({up:[...r.upstream].sort(),down:[...r.downstream].sort()})
+ it('current lab: k8 and k3 examples',async()=>{
+  const {lineage}=await import('./cluster-layout'),p=buildClusterPresentation(currentLab())
+  expect(ids(lineage(p,'k8'))).toEqual({up:['k1','k2','k3','k4','k5','k6','k7'],down:['k9']})
+  expect(ids(lineage(p,'k3'))).toEqual({up:['k1'],down:['k6','k8','k9']})
+  expect(ids(lineage(p,'k1'))).toEqual({up:[],down:['k2','k3','k4','k5','k6','k7','k8','k9']})
+ })
+ it('ignores disabled links even when shown',async()=>{
+  const {lineage}=await import('./cluster-layout')
+  expect(ids(lineage(buildClusterPresentation(currentLab(),{showDisabled:true}),'k3'))).toEqual({up:['k1'],down:['k6','k8','k9']})
+ })
+ it('cycles terminate, exclude self and count each cluster once',async()=>{
+  const {lineage}=await import('./cluster-layout'),p=buildClusterPresentation(cyclicGraph())
+  expect(ids(lineage(p,'c'))).toEqual({up:['a','b','d','e'],down:['d','e','f','g']})
+  expect(ids(lineage(p,'a'))).toEqual({up:['b'],down:['b','c','d','e','f','g']})
+ })
+ it('isolated cluster has no lineage; fan-out/fan-in on the 20 and 40 node graphs match brute force',async()=>{
+  const {lineage}=await import('./cluster-layout')
+  expect(ids(lineage(buildClusterPresentation(isolatedGraph()),'solo-1'))).toEqual({up:[],down:[]})
+  expect(ids(lineage(buildClusterPresentation(isolatedGraph()),'p1'))).toEqual({up:[],down:['p2','p3','p4']})
+  const {generatedLarge}=await import('./fixtures')
+  for(const p of [buildClusterPresentation(generatedDag()),buildClusterPresentation(generatedLarge().snapshot)]){
+   const reach=(from:string,fwd:boolean)=>{const seen=new Set<string>();let frontier=[from];while(frontier.length){const next:string[]=[];for(const e of p.edges){const [a,b]=fwd?[e.source,e.target]:[e.target,e.source];if(frontier.includes(a)&&!seen.has(b)){seen.add(b);next.push(b)}}frontier=next}seen.delete(from);return [...seen].sort()}
+   for(const n of p.nodes)expect(ids(lineage(p,n.id))).toEqual({up:reach(n.id,false),down:reach(n.id,true)})
+  }
+ })
+ it('lineage edges are exactly the edges on upstream or downstream paths',async()=>{
+  const {lineage}=await import('./cluster-layout'),p=buildClusterPresentation(currentLab())
+  const r=lineage(p,'k3'),labels=r.edgeIds.map(id=>p.edges.find(e=>e.id===id)!).map(e=>e.source+'>'+e.target).sort()
+  expect(labels).toEqual(['k1>k3','k3>k6','k6>k8','k8>k9'])
+ })
+})
+
 describe('label placement',()=>{
  it('maps a reserved label box to the distance along the route',async()=>{
   const {labelDistance}=await import('./cluster-layout')

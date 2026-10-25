@@ -66,3 +66,16 @@ export function labelDistance(route:Position[],box:Position&{width:number;height
  }
  return at
 }
+
+/** Every cluster reachable upstream / downstream over enabled links; BFS with a visited set, so cycles terminate and nobody is counted twice. */
+export function lineage(p:Presentation,id:string):{upstream:string[];downstream:string[];edgeIds:string[]} {
+ const active=p.edges.filter(e=>e.state!=='disabled')
+ const walk=(forward:boolean)=>{
+  const seen=new Set<string>([id]),queue=[id]
+  for(let i=0;i<queue.length;i++){const current=queue[i]!;for(const e of active){const [from,to]=forward?[e.source,e.target]:[e.target,e.source];if(from===current&&!seen.has(to)){seen.add(to);queue.push(to)}}}
+  seen.delete(id);return seen
+ }
+ const up=walk(false),down=walk(true)
+ const edgeIds=active.filter(e=>up.has(e.source)&&(up.has(e.target)||e.target===id)||down.has(e.target)&&(down.has(e.source)||e.source===id)).map(e=>e.id)
+ return {upstream:[...up].sort(),downstream:[...down].sort(),edgeIds:edgeIds.sort()}
+}
