@@ -12,7 +12,7 @@ import { readSnapshot,scopePath,viewPath,type Snapshot,type View,type Position,t
 import { filterGraph,linkStatus,mappingLabel,mappingName,nodeIdentity,unknown } from '../topology/model'
 
 import { buildPresentation,focusPresentation,tracePaths } from '../topology/presentation'
-import { buildClusterPresentation,directNeighbors,presentationFor } from '../topology/cluster-presentation'
+import { buildClusterPresentation,directNeighbors,isDisabledLink,presentationFor } from '../topology/cluster-presentation'
 import { emptyLocalView, readLocalView, saveLocalView } from '../topology/local-view'
 
 const route=inject(routeLocationKey,undefined)
@@ -53,7 +53,7 @@ const routeChoices=computed(()=>visible.value?.links.filter(link=>routeLinkIds.v
 const pathSource=shallowRef(''),pathTarget=shallowRef(''),pathKey=shallowRef('')
 const graphMode=computed(()=>mode.value==='relations'?'relations':'clusters')
 const clusterGraph=computed(()=>visible.value?buildClusterPresentation(visible.value):undefined)
-const disabledCount=computed(()=>snapshot.value?filterGraph(snapshot.value,clusters.value,filters.value,{kafka:true,workloads:true},true).links.filter(l=>l.state==='disabled').length:0)
+const disabledCount=computed(()=>snapshot.value?filterGraph(snapshot.value,clusters.value,filters.value,{kafka:true,workloads:true},true).links.filter(isDisabledLink).length:0)
 const directCounts=computed(()=>clusterGraph.value&&selectedNode.value?directNeighbors(clusterGraph.value,selectedNode.value):undefined)
 const chainGraph=computed(()=>visible.value?buildPresentation(visible.value,'chain'):undefined)
 const pathNodes=computed(()=>visible.value?.nodes.filter(n=>n.kind==='kafka').map(n=>({id:n.id,name:nodeIdentity(visible.value!,n.id,clusters.value)}))??[])

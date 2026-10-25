@@ -14,6 +14,13 @@ describe('cluster presentation',()=>{
   expect(all.edges).toHaveLength(20)
   expect(all.edges.filter(e=>e.state==='disabled')).toHaveLength(10)
  })
+ it('treats enabled=false as disabled even when the collected state is unknown',async()=>{
+  const {snapshotFromRows}=await import('./fixtures')
+  const s=snapshotFromRows(['a','b'],[['on','a','b','mm2'],['off','b','a','mm2',false]])
+  s.links.forEach(l=>{l.state='unknown'})
+  expect(buildClusterPresentation(s).edges.map(e=>e.linkIds[0])).toEqual(['on'])
+  expect(buildClusterPresentation(s,{showDisabled:true}).edges.find(e=>e.linkIds[0]==='off')?.state).toBe('disabled')
+ })
  it('keeps isolated clusters and parallel MM2 links between the same pair',()=>{
   expect(buildClusterPresentation(isolatedGraph()).nodes.map(n=>n.id)).toContain('solo-2')
   expect(buildClusterPresentation(cyclicGraph()).edges.filter(e=>e.source==='a'&&e.target==='b')).toHaveLength(2)

@@ -8,8 +8,11 @@ export interface ClusterOptions {
  transform?:(presentation:Presentation)=>Presentation
 }
 
+/** A link is disabled when its rule is off, whatever runtime state was collected. */
+export function isDisabledLink(link:Pick<Snapshot['links'][number],'state'|'enabled'>):boolean {return link.state==='disabled'||link.enabled===false}
+
 function edgeState(link:Snapshot['links'][number],stale:boolean):PresentationEdge['state'] {
- if(link.state==='disabled')return 'disabled'
+ if(isDisabledLink(link))return 'disabled'
  if(stale||link.state==='unknown')return 'unknown'
  return link.verified?'verified':'unverified'
 }
@@ -20,7 +23,7 @@ export function buildClusterPresentation(snapshot:Snapshot,options:ClusterOption
  for(const edge of snapshot.edges){const list=byLink.get(edge.link_id)??[];list.push(edge);byLink.set(edge.link_id,list)}
  const edges:PresentationEdge[]=[]
  for(const link of [...snapshot.links].sort((a,b)=>a.id.localeCompare(b.id))){
-  if(link.state==='disabled'&&!options.showDisabled)continue
+  if(isDisabledLink(link)&&!options.showDisabled)continue
   const rows=byLink.get(link.id)??[],input=rows.filter(e=>e.relation==='declared_input'),output=rows.filter(e=>e.relation==='declared_output')
   if(input.length!==1||output.length!==1||kinds.get(input[0]!.source)!=='kafka'||kinds.get(output[0]!.target)!=='kafka')continue
   const stale=!!(snapshot.stale||link.stale||input[0]!.stale||output[0]!.stale)
