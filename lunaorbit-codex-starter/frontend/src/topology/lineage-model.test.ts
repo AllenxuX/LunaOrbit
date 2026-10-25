@@ -184,3 +184,14 @@ describe('源头 four-state rule (LUNA-28)',()=>{
   expect(JSON.stringify(r)).not.toMatch(/上游（Topic 不存在）|配置目标/)
  })
 })
+
+describe('same-name topic on an unconnected cluster (LUNA-29)',()=>{
+ it('is not pulled into the result and gets no relation, even if present in the raw graph',async()=>{
+  const {resolveSources}=await import('./lineage-model')
+  const iso=(g:Lineage):Lineage=>({...g,nodes:[...g.nodes,{id:'topic:zz',kind:'topic',label:'t',cluster_id:'zz',cluster_name:'zz',topic:'t',exists:true}]})
+  const r=resolveSources({direction:'both',up:iso(trace('k4','upstream',4,()=>true)),down:iso(trace('k4','downstream',4,()=>true))})
+  expect(r.graph.nodes.some(n=>n.cluster_id==='zz')).toBe(false)
+  expect(r.graph.edges.some(e=>e.source==='topic:zz'||e.target==='topic:zz')).toBe(false)
+  expect(r.sources).toEqual(['k1']);expect(r.summary).toBe('源头：k1')
+ })
+})

@@ -129,4 +129,10 @@ describe('Topic 链路 page',()=>{
   expect(wrapper.get('[data-not-found]').text()).toContain('该集群未读取到此 Topic');expect(wrapper.find('[data-canvas]').exists()).toBe(false)
   wrapper.unmount()
  })
+ it('does not list or draw a same-name topic on an unconnected cluster',async()=>{
+  stub({lineage:{...graph,nodes:[...graph.nodes,{...topicNode('z','Isolated-Z')}]}});const {wrapper}=await page()
+  expect(view(wrapper).nodes.map(n=>n.id).sort()).toEqual(['topic:a','topic:b'])
+  expect(wrapper.text()).not.toContain('Isolated-Z');expect(wrapper.find('[data-lineage-node="topic:z"]').exists()).toBe(false)
+  wrapper.unmount()
+ })
 })
