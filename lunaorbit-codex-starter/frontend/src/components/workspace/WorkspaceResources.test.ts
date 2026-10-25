@@ -32,6 +32,7 @@ it('navigates from each Topic to its dedicated detail page without fetching inli
  const fetcher=vi.fn(async()=>new Response(JSON.stringify({items:[{name:'events.test',partitions:[],rf_min:1,rf_max:1}],total:1,...markers})));vi.stubGlobal('fetch',fetcher)
  const w=mount(WorkspaceResources,{props:{clusterId:'one',section:'topics',canManageTopics:true},global:{stubs:{RouterLink:RouterLinkStub}}});await flushPromises()
  expect(w.findComponent(RouterLinkStub).props('to')).toBe('/kafka/clusters/one/topics/events.test')
+ expect(w.findAllComponents(RouterLinkStub).map(l=>l.props('to'))).toContainEqual({path:'/topic-lineage',query:{cluster_id:'one',topic:'events.test'}})
  expect(w.find('.resource-detail').exists()).toBe(false)
  expect(fetcher).toHaveBeenCalledTimes(1)
  w.unmount()
