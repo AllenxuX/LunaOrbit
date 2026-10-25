@@ -105,6 +105,23 @@ it('clusters mode focus highlights the whole upstream and downstream lineage and
  const lit=fake.edges.filter(e=>e.attr.mock.calls.filter(c=>c[0]==='line/opacity').at(-1)?.[1]===1).map(e=>(e.data as {source:string;target:string})).map(e=>e.source+'>'+e.target).sort()
  expect(lit).toEqual(['k1>k3','k3>k6','k6>k8','k8>k9']);w.unmount()
 })
+it('pairs mode draws one line per cluster pair labelled ×N without MM2 names and clicking selects all its MM2',async()=>{
+ const {parallelPair}=await import('../topology/fixtures')
+ const w=mount(TopologyCanvas,{props:{snapshot:parallelPair(),positions:{},mode:'pairs'}});await ready()
+ expect(fake.nodes).toHaveLength(9);expect(fake.edges).toHaveLength(10)
+ const labels=fake.edges.map(e=>JSON.stringify(e.setLabels.mock.calls.at(-1)))
+ expect(labels.filter(l=>l.includes('×2'))).toHaveLength(1);expect(labels.some(l=>l.includes('mm2'))).toBe(false)
+ const pair=fake.edges.find(e=>(e.data as {linkIds:string[]}).linkIds.length===3)!
+ fake.events.get('edge:click')?.({edge:pair});expect((w.emitted('selectLinks')?.[0]?.[0] as string[]).sort()).toEqual(['L01','L11','L12'])
+ const single=fake.edges.find(e=>(e.data as {linkIds:string[]}).linkIds.length===1)!
+ fake.events.get('edge:click')?.({edge:single});expect(w.emitted('selectLinks')).toHaveLength(2)
+ fake.events.get('edge:mouseenter')?.({edge:single});expect(JSON.stringify(single.setLabels.mock.calls.at(-1))).not.toMatch(/mm2|状态|验证/)
+ const node=fake.nodes[0]! as unknown as {attrs:{body:{rx:number};meta:{text:string}};height:number}
+ expect(node.attrs.body.rx).toBe(node.height/2);expect(node.attrs.meta.text).toBe('')
+ await w.setProps({showDisabled:true});await vi.waitFor(()=>expect(fake.edges).toHaveLength(20))
+ const off=fake.edges.find(e=>(e.data as {state:string}).state==='disabled')!
+ expect(JSON.stringify((off as unknown as {attrs:unknown}).attrs)).toContain('#a3abb8');w.unmount()
+})
 it('rejects incompatible saved coordinates with a visible recovery action',async()=>{
  const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{a:{x:0,y:0},b:{x:0,y:0}}}});await ready()
  expect(w.text()).toContain('已保存的布局存在重叠');expect(w.find('button').text()).toBe('重新整理');w.unmount()

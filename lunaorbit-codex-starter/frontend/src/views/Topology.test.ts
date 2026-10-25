@@ -8,7 +8,7 @@ vi.mock('../composables/useRuntime',async()=>{const {ref}=await import('vue');re
 afterEach(()=>{vi.unstubAllGlobals();testRuntime.value.mode='mock'})
 const mapping={alias:'mars',status:'candidate',method:'bootstrap',confidence:'low',candidate_ids:[]}
 const snapshot={scope_id:'synthetic-mm2',synthetic:true,stale:false,observed_at:'2026-10-19T00:00:00Z',attempted_at:'2026-10-19T00:00:00Z',issues:[],nodes:[{id:'work',kind:'workload',label:'synthetic-deployment'},{id:'source',kind:'kafka',label:'mars'},{id:'target',kind:'kafka',label:'moon-prod'}],edges:[{id:'in',source:'source',target:'work',link_id:'link',relation:'declared_input'},{id:'out',source:'work',target:'target',link_id:'link',relation:'declared_output'}],links:[{id:'link',source_alias:'mars',target_alias:'moon-prod',namespace:'synthetic',workload_name:'synthetic-deployment',workload_uid:'uid',declared:true,observed:true,verified:false,stale:false,observed_at:'2026-10-19T00:00:00Z',source:mapping,target:mapping,topics_raw:'events.*',policy:'DefaultReplicationPolicy',runtime:{ready_replicas:1,replicas:1,pod_candidates:1,pod_association:'label_candidates'},evidence:[{configmap_name:'synthetic-config',config_key:'mm2.properties',deployment_name:'synthetic-deployment',fingerprint:'safe-hash'}],notes:[]}]}
-function setup(noSnapshot=false,mapped=false,queryScope='',initialPositions:Record<string,{x:number;y:number}>={},initialView='relations'){
+function setup(noSnapshot=false,mapped=false,queryScope='',initialPositions:Record<string,{x:number;y:number}>={},initialView='mm2'){
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   if(url.endsWith('/session'))return new Response(JSON.stringify({user_id:'owner',mode:'mock'}))
   if(url.endsWith('/scopes'))return new Response(JSON.stringify({items:[...(queryScope?[{id:'other-scope',synthetic:true}]:[]),{id:'synthetic-mm2',synthetic:true}]}))
@@ -28,7 +28,7 @@ it('shows uncertain evidence and explicitly saves only personal view data',async
  expect(w.text()).toContain('synthetic-config');expect(w.text()).toContain('候选 Pod');expect(w.text()).toContain('RF 未知')
  await w.get('[data-move]').trigger('click');await w.get('[data-save]').trigger('click');await flushPromises()
  const call=vi.mocked(fetch).mock.calls.find(c=>c[1]?.method==='PUT');const body=JSON.parse(call?.[1]?.body as string)
- expect(body.positions['relations:source']).toEqual({x:200,y:300});expect(body.links).toBeUndefined();expect(body.edges).toBeUndefined();expect(w.text()).toContain('布局已保存');w.unmount()
+ expect(body.positions['clusters:source']).toEqual({x:200,y:300});expect(body.links).toBeUndefined();expect(body.edges).toBeUndefined();expect(w.text()).toContain('布局已保存');w.unmount()
 })
 it('prioritizes cluster names and business details while keeping Kafka IDs out of text',async()=>{
  const w=setup(false,true);await flushPromises();await w.get('[data-link="link"]').trigger('click')
@@ -107,9 +107,9 @@ it('gives the initial canvas full width and opens the details column only after 
 })
 
 it('defaults to relationship view and switches deployment without losing layout drafts',async()=>{
- const w=setup();await flushPromises()
+ const w=setup(false,false,'',{},'relations');await flushPromises()
  const canvas=w.findComponent({name:'TopologyCanvas'})
- expect(canvas.props('mode')).toBe('clusters')
+ expect(canvas.props('mode')).toBe('pairs')
  await w.get('[data-move]').trigger('click')
  await w.get('[data-mode="tasks"]').trigger('click')
  expect(w.find('[data-canvas]').exists()).toBe(false)
@@ -159,7 +159,7 @@ it('clears focus when a filter removes its node',async()=>{
 })
 
 it('retains legacy coordinates while saving relationship-only changes',async()=>{
- const w=setup(false,false,'',{'source':{x:900,y:900},'relations:source':{x:100,y:120}});await flushPromises()
+ const w=setup(false,false,'',{'source':{x:900,y:900},'relations:source':{x:100,y:120}},'relations');await flushPromises()
  const canvas=w.findComponent({name:'TopologyCanvas'})
  expect(canvas.props('positions').source).toEqual({x:100,y:120})
  await w.get('[data-mode="tasks"]').trigger('click')
@@ -211,7 +211,7 @@ it('keeps instance rows available separately from the default continuous topolog
 })
 
 it('saves the actual arranged positions returned by the canvas and preserves other views',async()=>{
- const w=setup(false,false,'',{'chain:source':{x:9,y:9}});await flushPromises()
+ const w=setup(false,false,'',{'chain:source':{x:9,y:9}},'relations');await flushPromises()
  const button=w.findAll('button').find(b=>b.text()==='整理布局')!;await button.trigger('click');await flushPromises()
  await w.get('[data-save]').trigger('click');await flushPromises()
  const call=vi.mocked(fetch).mock.calls.find(c=>c[1]?.method==='PUT'),body=JSON.parse(call?.[1]?.body as string)
@@ -220,8 +220,9 @@ it('saves the actual arranged positions returned by the canvas and preserves oth
 
 it('MM2 topology counts enabled links, toggles disabled links and shows full lineage counts',async()=>{
  const w=setup(false,false,'',{},'');await flushPromises()
- expect(w.text()).toContain('2 个集群 · 1 条启用链路')
- expect(w.text()).toContain('显示禁用链路（0）')
+ expect(w.get('.graph-topline').text()).toContain('2 个集群 · 1 条 MM2 任务 · 就绪 1/1')
+ expect(w.text()).toContain('显示禁用任务（0）')
+ expect(w.get('.graph-topline').text()).not.toMatch(/×|同步关系/)
  const canvas=w.findComponent({name:'TopologyCanvas'})
  expect(canvas.props('showDisabled')).toBe(false)
  await w.get('[data-show-disabled]').setValue(true)
@@ -237,10 +238,44 @@ it('passes registered environment and room per cluster for scale grouping',async
  w.unmount()
 })
 
-it('both graph tabs use the cluster layered layout',async()=>{
+it('both graph tabs use the layered layout: relations draws cluster pairs, MM2 draws links',async()=>{
  const w=setup(false,false,'',{},'relations');await flushPromises()
- expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
+ expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('pairs')
+ const top=w.get('.graph-topline').text()
+ expect(top).toContain('2 个集群 · 1 对同步关系（启用）');expect(top).toContain('集群视角')
+ expect(top).not.toMatch(/链路|任务/)
+ expect(w.find('.task-panel').exists()).toBe(false);expect(w.find('[data-path-source]').exists()).toBe(false)
  await w.get('[data-mode="mm2"]').trigger('click')
  expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
+ w.unmount()
+})
+
+it('relations page: clicking a relation opens a side panel listing member MM2 with separated facts',async()=>{
+ const w=setup(false,false,'',{},'relations');await flushPromises()
+ w.findComponent({name:'TopologyCanvas'}).vm.$emit('selectLinks',['link']);await flushPromises()
+ const panel=w.get('[data-relation-panel]')
+ expect(panel.get('[data-relation-title]').text()).toBe('mars（未关联集群） → moon-prod（未关联集群）')
+ expect(panel.get('[data-relation-counts]').text()).toBe('启用 MM2 1 · 禁用 0')
+ const row=panel.get('[data-relation-link]')
+ expect(row.get('[data-relation-name]').text()).toBe('synthetic-deployment')
+ expect(row.get('[data-relation-evidence]').text()).toBe('证据类型：运行观测')
+ expect(row.get('[data-relation-enablement]').text()).toBe('启用')
+ expect(row.get('[data-relation-status]').text()).toBe('状态未知')
+ expect(row.get('[data-relation-freshness]').text()).toBe('当前')
+ expect(panel.text()).not.toContain('已验证')
+ expect(w.find('[aria-label="链路详情"]').exists()).toBe(false)
+ w.unmount()
+})
+it('MM2 page: link detail starts with evidence type and keeps enablement, status and freshness separate',async()=>{
+ const w=setup(false,false,'',{},'');await flushPromises()
+ w.findComponent({name:'TopologyCanvas'}).vm.$emit('select','link');await flushPromises()
+ const facts=w.findAll('[data-link-facts] dt').map(d=>d.text())
+ expect(facts[0]).toBe('证据类型')
+ expect(w.get('[data-evidence-type]').text()).toBe('运行观测')
+ expect(w.get('[data-link-enablement]').text()).toBe('启用')
+ expect(w.get('[data-link-status]').text()).toBe('状态未知')
+ expect(w.get('[data-link-freshness]').text()).toBe('当前')
+ expect(w.get('[data-link-facts]').text()).toContain('DefaultReplicationPolicy')
+ expect(w.get('.evidence-panel').text()).not.toMatch(/×\d|已验证/)
  w.unmount()
 })

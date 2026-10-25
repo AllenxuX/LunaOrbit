@@ -15,7 +15,7 @@ const container=ref<InstanceType<typeof globalThis.HTMLDivElement>>()
 const expandedGroups=ref(new Set<string>())
 const scale=computed(()=>{
  const base=presentationFor(props.snapshot,props.mode,props.showDisabled)
- return props.mode==='clusters'?applyScaleRules(base,props.groupMeta??{},{expanded:expandedGroups.value}):{presentation:base,grouped:false as const,groups:undefined}
+ return layered.value?applyScaleRules(base,props.groupMeta??{},{expanded:expandedGroups.value}):{presentation:base,grouped:false as const,groups:undefined}
 })
 const groupCards=computed(()=>new Map((scale.value.groups?.groups??[]).map(g=>[g.id,g.card])))
 const labelNotice=ref('')
@@ -25,8 +25,10 @@ const presentation=computed(()=>{
  const ids=new Set(props.pathNodeIds)
  return {nodes:full.nodes.filter(n=>ids.has(n.id)),edges:full.edges.filter(e=>ids.has(e.source)&&ids.has(e.target))}
 })
-function nodeHeight(){return props.mode==='clusters'?clusterNodeHeight:76}
-function nodeWidth(){return props.mode==='clusters'?clusterNodeWidth:props.mode==='chain'?180:224}
+const pairs=computed(()=>props.mode==='pairs')
+const layered=computed(()=>props.mode==='clusters'||props.mode==='pairs')
+function nodeHeight(){return pairs.value?44:props.mode==='clusters'?clusterNodeHeight:76}
+function nodeWidth(){return pairs.value?150:props.mode==='clusters'?clusterNodeWidth:props.mode==='chain'?180:224}
 const loading=ref(false),message=ref('')
 let resizeObserver:InstanceType<typeof globalThis.ResizeObserver>|undefined
 let graph:Graph|undefined
@@ -69,13 +71,14 @@ function scheduleFit(){
  const instance=graph,token=++fitEpoch
  void nextTick(()=>{if(instance&&graph===instance&&token===fitEpoch)instance.zoomToFit({padding:56,maxScale:1})})
 }
-function color(edge:PresentationEdge){return edge.stale||edge.state==='disabled'?'#929aa6':edge.state==='verified'?'#35744e':edge.state==='unknown'?'#bd8b39':'#758aa5'}
+function dash(edge:PresentationEdge){return pairs.value?(edge.state==='disabled'?'6 6':'0'):edge.state==='disabled'?'2 5':edge.stale||edge.state!=='verified'?'6 4':'0'}
+function color(edge:PresentationEdge){if(pairs.value)return edge.state==='disabled'?'#a3abb8':'#8a94a6';return edge.stale||edge.state==='disabled'?'#929aa6':edge.state==='verified'?'#35744e':edge.state==='unknown'?'#bd8b39':'#758aa5'}
 function status(edge:PresentationEdge){return edge.stale?'数据已过期 · 状态未知':edge.state==='disabled'?'同步已禁用':edge.state==='verified'?'链路已验证':edge.state==='unknown'?'状态未知':'链路未验证'}
 function name(id:string){const node=presentation.value.nodes.find(n=>n.id===id);return node?.linkId||id.startsWith('group:')?node?.label??id:nodeIdentity(props.snapshot,id,props.registrations??[])}
-function meta(id:string,kind:string,linkId?:string){if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
+function meta(id:string,kind:string,linkId?:string){if(pairs.value)return groupCards.value.get(id)??'';if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
 function overlays(){
  if(!graph)return
- const focus=props.focusNodeId?props.mode==='clusters'?(r=>({nodeIds:[props.focusNodeId!,...r.upstream,...r.downstream],edgeIds:r.edgeIds}))(lineage(presentation.value,props.focusNodeId)):focusPresentation(presentation.value,props.focusNodeId,props.focusDirection):undefined
+ const focus=props.focusNodeId?layered.value?(r=>({nodeIds:[props.focusNodeId!,...r.upstream,...r.downstream],edgeIds:r.edgeIds}))(lineage(presentation.value,props.focusNodeId)):focusPresentation(presentation.value,props.focusNodeId,props.focusDirection):undefined
  const selected=new Set(props.selectedLinkIds??[])
  const selectedEdges=presentation.value.edges.filter(e=>e.linkIds.some(id=>selected.has(id)))
  const activeNodes=new Set(selectedEdges.flatMap(e=>[e.source,e.target]))
@@ -97,15 +100,16 @@ function overlays(){
   if(!edge)continue
   const selectedEdge=edge.linkIds.some(id=>selected.has(id))
   const inFocus=focus?.edgeIds.includes(edge.id)??selectedEdge
-  const expanded=hoveredEdge===edge.id||props.mode!=='chain'&&(selectedEdge||props.mode!=='clusters'&&!!focus&&inFocus)
+  const expanded=!pairs.value&&(hoveredEdge===edge.id||props.mode!=='chain'&&(selectedEdge||props.mode!=='clusters'&&!!focus&&inFocus))
   const count=edge.linkIds.length>1?`${edge.linkIds.length} 条链路`:''
   const confirmed=edge.linkIds.some(id=>props.confirmedLinks?.includes(id))?' · 业务人工确认（非健康验证）':''
   const back=!!positionsNow&&positionsNow[edge.target]!.x<=positionsNow[edge.source]!.x
-  const tag=props.mode==='clusters'?(shownLabels.has(edge.id)?middleEllipsis(edge.label??'',18)+(edge.state==='disabled'?' · 已禁用':'')+(back?' · 回流/环路':''):''):count
+  const tag=pairs.value?(edge.label??''):props.mode==='clusters'?(shownLabels.has(edge.id)?middleEllipsis(edge.label??'',18)+(edge.state==='disabled'?' · 已禁用':'')+(back?' · 回流/环路':''):''):count
   const text=expanded?`${props.mode==='clusters'?(edge.label??'')+'\n':''}${name(edge.source)} → ${name(edge.target)}\n${[props.mode==='clusters'?'':count,status(edge)+confirmed].filter(Boolean).join(' · ')}`:tag
   const box=plan?.labels?.[edge.id],route=session?.getRoutes()[edge.id],moved=JSON.stringify(route)!==JSON.stringify(plan?.routes[edge.id])
   const position=props.mode==='clusters'&&box&&route&&!moved&&!expanded?{distance:Math.max(1.01,labelDistance(route,box)),offset:0}:{distance:0.5,offset:-14}
-  cell.attr('line/stroke',color(edge))
+  cell.attr('line/stroke',pairs.value&&selectedEdge?'#315fc1':color(edge))
+  if(pairs.value)cell.attr('line/strokeOpacity',edge.state!=='disabled'&&(edge.stale||edge.state==='unknown')?0.55:1)
   cell.attr('line/strokeWidth',selectedEdge||hoveredEdge===edge.id?3:2)
   cell.attr('line/opacity',focusing&&!inFocus&&hoveredEdge!==edge.id?0.15:1)
   cell.setLabels(text?[{position,attrs:{label:{text,fontSize:12,fill:'#334761'},body:{fill:'#fff',stroke:'#dce4ef',strokeWidth:1,rx:4,ry:4}}}]:[])
@@ -123,13 +127,13 @@ function draw(){
   const related=presentation.value.edges.flatMap(e=>(['source','target'] as const).filter(end=>e[end]===n.id).map(end=>{const anchor=plan!.ports[e.id]![end];return {id:port(e,end),group:anchor.side,args:{x:anchor.side==='right'?nodeWidth():0,y:anchor.offset}}}))
   const cell=graph.createNode({id:n.id,x:p.x,y:p.y,width:nodeWidth(),height:nodeHeight(),shape:'rect',markup:[{tagName:'title',selector:'title'},{tagName:'rect',selector:'body'},{tagName:'text',selector:'label'},{tagName:'text',selector:'meta'}],
    ports:{groups:{left:{position:'absolute',attrs:{circle:{r:0,magnet:false}}},right:{position:'absolute',attrs:{circle:{r:0,magnet:false}}}},items:related},
-   attrs:{title:{text:name(n.id)},body:{fill:n.kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:n.kind==='kafka'?'#6386c7':'#8b70ba',rx:8,ry:8},label:{text:props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id),refX:'50%',refY:'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:meta(n.id,n.kind,n.linkId),refX:'50%',refY:'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
+   attrs:{title:{text:name(n.id)},body:{fill:n.kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:n.kind==='kafka'?'#6386c7':'#8b70ba',rx:pairs.value?nodeHeight()/2:8,ry:pairs.value?nodeHeight()/2:8},label:{text:layered.value?middleEllipsis(name(n.id),18):name(n.id),refX:'50%',refY:pairs.value?'50%':'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:pairs.value?14:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:meta(n.id,n.kind,n.linkId),refX:'50%',refY:'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
   nodes.set(n.id,cell);cells.push(cell)
  }
  for(const edge of presentation.value.edges){
   const route=routes[edge.id]!.slice(1,-1)
   const cell=graph.createEdge({id:edge.id,source:{cell:edge.source,port:port(edge,'source')},target:{cell:edge.target,port:port(edge,'target')},connector:{name:'rounded',args:{radius:6}},router:{name:'normal'},vertices:route,
-   attrs:{line:{stroke:color(edge),strokeWidth:2,strokeDasharray:edge.state==='disabled'?'2 5':edge.stale||edge.state!=='verified'?'6 4':'0',targetMarker:{name:'classic',size:8}}},data:edge})
+   attrs:{line:{stroke:color(edge),strokeWidth:2,strokeDasharray:dash(edge),targetMarker:{name:'classic',size:8}}},data:edge})
   edges.set(edge.id,cell);cells.push(cell)
  }
  graph.resetCells(cells);overlays()
@@ -148,7 +152,7 @@ onMounted(()=>{
   try{const update=session.moveNode(node.id,node.position());restoreRoutes();apply(update);const settled=update.positions[node.id]!;applying=true;node.position(settled.x,settled.y);applying=false;message.value=update.adjusted?'节点已移至附近空位，避免重叠':'';if(update.changedNodeIds.includes(node.id))emit('move',node.id,update.positions[node.id]!)}
   catch{applying=true;node.position(session.getPositions()[node.id]!.x,session.getPositions()[node.id]!.y);applying=false;restoreRoutes();message.value='当前位置无法清晰布线，已恢复；可整理布局后重试'}
  })
- graph.on('edge:click',({edge})=>{const ids=edge.getData<PresentationEdge>()?.linkIds??[];if(ids.length===1)emit('select',ids[0]!);else if(ids.length>1)emit('selectLinks',[...ids])})
+ graph.on('edge:click',({edge})=>{const ids=edge.getData<PresentationEdge>()?.linkIds??[];if(ids.length===1&&!pairs.value)emit('select',ids[0]!);else if(ids.length)emit('selectLinks',[...ids])})
  graph.on('blank:click',()=>emit('clear'))
  graph.on('node:click',({node})=>{if(node.id.startsWith('group:')){const next=new Set(expandedGroups.value);if(next.has(node.id))next.delete(node.id);else next.add(node.id);expandedGroups.value=next;return}const task=node.getData<{linkId?:string}>()?.linkId;if(task)emit('select',task);else emit('selectNode',node.id)})
  graph.on('edge:mouseenter',({edge})=>{hoveredEdge=edge.id;overlays()})
@@ -168,8 +172,8 @@ onMounted(()=>{
 watch(structure,()=>{void arrange(false)})
 watch(()=>props.positions,syncPositions)
 watch([()=>props.snapshot,()=>props.registrations,()=>props.nodeHints],()=>{
- for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',meta(n.id,n.kind,n.linkId))}
- for(const edge of presentation.value.edges){edges.get(edge.id)?.setData(edge);edges.get(edge.id)?.attr('line/strokeDasharray',edge.state==='disabled'?'2 5':edge.stale||edge.state!=='verified'?'6 4':'0')}
+ for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',layered.value?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',meta(n.id,n.kind,n.linkId))}
+ for(const edge of presentation.value.edges){edges.get(edge.id)?.setData(edge);edges.get(edge.id)?.attr('line/strokeDasharray',dash(edge))}
  overlays()
 })
 watch([()=>props.affectedNodes,()=>props.confirmedLinks,()=>props.selectedLinkIds,()=>props.focusNodeId,()=>props.focusDirection],overlays)
