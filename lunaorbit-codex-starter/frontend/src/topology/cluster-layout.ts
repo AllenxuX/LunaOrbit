@@ -1,51 +1,9 @@
-import type { Snapshot } from '../api/topology'
 import { createElkLayout } from './elk-layout'
-import type { Presentation, PresentationEdge, PresentationNode } from './presentation'
+import type { Presentation } from './presentation'
+export * from './cluster-presentation'
 import type { LayoutPlan } from './routing-types'
 
-export interface ClusterOptions {
- showDisabled?:boolean
- /** Extension point for scale rules (grouping/folding); identity by default. */
- transform?:(presentation:Presentation)=>Presentation
-}
-
-function edgeState(link:Snapshot['links'][number],stale:boolean):PresentationEdge['state'] {
- if(link.state==='disabled')return 'disabled'
- if(stale||link.state==='unknown')return 'unknown'
- return link.verified?'verified':'unverified'
-}
-
-/** Cluster-only view: every Kafka cluster is a node, every MM2 replication link is one labelled edge. */
-export function buildClusterPresentation(snapshot:Snapshot,options:ClusterOptions={}):Presentation {
- const kinds=new Map(snapshot.nodes.map(n=>[n.id,n.kind])),byLink=new Map<string,Snapshot['edges']>()
- for(const edge of snapshot.edges){const list=byLink.get(edge.link_id)??[];list.push(edge);byLink.set(edge.link_id,list)}
- const edges:PresentationEdge[]=[]
- for(const link of [...snapshot.links].sort((a,b)=>a.id.localeCompare(b.id))){
-  if(link.state==='disabled'&&!options.showDisabled)continue
-  const rows=byLink.get(link.id)??[],input=rows.filter(e=>e.relation==='declared_input'),output=rows.filter(e=>e.relation==='declared_output')
-  if(input.length!==1||output.length!==1||kinds.get(input[0]!.source)!=='kafka'||kinds.get(output[0]!.target)!=='kafka')continue
-  const stale=!!(snapshot.stale||link.stale||input[0]!.stale||output[0]!.stale)
-  edges.push({id:'link:'+link.id,source:input[0]!.source,target:output[0]!.target,linkIds:[link.id],state:edgeState(link,stale),stale,label:link.workload_name||link.id})
- }
- const nodes:PresentationNode[]=snapshot.nodes.filter(n=>n.kind==='kafka').sort((a,b)=>a.id.localeCompare(b.id))
- const presentation={nodes,edges}
- return options.transform?options.transform(presentation):presentation
-}
-
-export function enabledLinkCount(snapshot:Snapshot):number {return buildClusterPresentation(snapshot).edges.length}
-
-export function directNeighbors(p:Presentation,id:string):{upstream:number;downstream:number} {
- const active=p.edges.filter(e=>e.state!=='disabled')
- return {upstream:new Set(active.filter(e=>e.target===id&&e.source!==id).map(e=>e.source)).size,downstream:new Set(active.filter(e=>e.source===id&&e.target!==id).map(e=>e.target)).size}
-}
-
-export function middleEllipsis(text:string,max=18):string {
- if(text.length<=max)return text
- const keep=max-1,head=Math.ceil(keep/2)
- return text.slice(0,head)+'…'+text.slice(text.length-(keep-head))
-}
-
-export const clusterNodeWidth=180,clusterNodeHeight=64
+import { clusterNodeHeight, clusterNodeWidth } from './cluster-presentation'
 export function labelSize(text:string){return {width:Math.min(18,text.length)*7+16,height:20}}
 
 export function layoutClusters(p:Presentation,workerUrl?:string):Promise<LayoutPlan> {

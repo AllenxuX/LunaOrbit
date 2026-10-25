@@ -65,3 +65,11 @@ describe('generic layered layout',()=>{
   expect(layoutMetrics(p,plan).crossings).toBe(1)
  })
 })
+
+describe('label placement',()=>{
+ it('maps a reserved label box to the distance along the route',async()=>{
+  const {labelDistance}=await import('./cluster-layout')
+  expect(labelDistance([{x:0,y:0},{x:100,y:0},{x:100,y:50}],{x:40,y:-10,width:20,height:20})).toBe(50)
+  expect(labelDistance([{x:0,y:0},{x:100,y:0},{x:100,y:50}],{x:90,y:30,width:20,height:20})).toBe(140)
+ })
+})

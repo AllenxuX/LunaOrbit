@@ -58,6 +58,24 @@ it('keeps shared Kafka unique and task clicks exact; path focus remains temporar
  expect(fake.edges).toHaveLength(2);fake.events.get('node:moved')?.({node:fake.nodes[0]});expect(w.emitted('move')).toBeUndefined()
  await w.setProps({pathNodeIds:[]});await vi.waitFor(()=>expect(fake.nodes).toHaveLength(4));w.unmount()
 })
+it('clusters mode: only cluster nodes, one MM2-labelled edge per enabled link, disabled shown dashed only on request',async()=>{
+ const {currentLab}=await import('../topology/fixtures')
+ const w=mount(TopologyCanvas,{props:{snapshot:currentLab(),positions:{},mode:'clusters'}});await ready()
+ expect(fake.nodes).toHaveLength(9);expect(fake.edges).toHaveLength(10)
+ const edge=fake.edges.find(e=>(e.data as {linkIds:string[]}).linkIds[0]==='L02')!
+ expect(JSON.stringify(edge.setLabels.mock.calls.at(-1))).toContain('luna-mm2-k1-to-k3')
+ const node=fake.nodes.find(n=>n.id==='k1')!;expect(JSON.stringify(node.attrs)).toContain('"title"')
+ await w.setProps({showDisabled:true});await vi.waitFor(()=>expect(fake.edges).toHaveLength(20))
+ const disabled=fake.edges.find(e=>(e.data as {state:string}).state==='disabled')!
+ expect(JSON.stringify(disabled.attrs)).toContain('2 5');w.unmount()
+})
+it('clusters mode truncates long cluster names in the middle and keeps the full name as tooltip',async()=>{
+ const {snapshotFromRows}=await import('../topology/fixtures')
+ const long='luna-production-cluster-shanghai-a'
+ const w=mount(TopologyCanvas,{props:{snapshot:snapshotFromRows([long,'b'],[['x',long,'b','mm2']]),positions:{},mode:'clusters'}});await ready()
+ const attrs=JSON.stringify(fake.nodes.find(n=>n.id===long)!.attrs)
+ const node=fake.nodes.find(n=>n.id===long)! as unknown as {attrs:{label:{text:string};title:{text:string}}};expect(node.attrs.label.text.length).toBe(18);expect(node.attrs.label.text).toContain('…');expect(node.attrs.title.text).toContain(long);expect(attrs).toContain(long);w.unmount()
+})
 it('rejects incompatible saved coordinates with a visible recovery action',async()=>{
  const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{a:{x:0,y:0},b:{x:0,y:0}}}});await ready()
  expect(w.text()).toContain('已保存的布局存在重叠');expect(w.find('button').text()).toBe('重新整理');w.unmount()

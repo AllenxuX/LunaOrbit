@@ -3,21 +3,22 @@ import { computed,nextTick,onMounted,onBeforeUnmount,ref,watch } from 'vue'
 import { Graph,type Cell,type Node,type Edge } from '@antv/x6'
 import type { Snapshot,Position } from '../api/topology'
 import { nodeIdentity,type RegistrationIdentity } from '../topology/model'
-import { buildPresentation,focusPresentation,type PresentationEdge,type TopologyMode } from '../topology/presentation'
+import { focusPresentation,type PresentationEdge } from '../topology/presentation'
+import { clusterNodeHeight,clusterNodeWidth,labelDistance,middleEllipsis,presentationFor,type CanvasMode } from '../topology/cluster-presentation'
 import { createLayoutTask,type LayoutTask } from '../topology/layout-client'
 import { RoutingSession } from '../topology/stable-routing'
 import type { LayoutPlan,RoutingUpdate } from '../topology/routing-types'
-const props=withDefaults(defineProps<{snapshot:Snapshot;positions:Record<string,Position>;affectedNodes?:string[];confirmedLinks?:string[];registrations?:RegistrationIdentity[];mode?:TopologyMode;selectedLinkIds?:string[];focusNodeId?:string;focusDirection?:'neighbors'|'upstream'|'downstream';nodeHints?:Record<string,string>;pathNodeIds?:string[]}>(),{mode:'relations',focusDirection:'neighbors',affectedNodes:()=>[],confirmedLinks:()=>[],registrations:()=>[],selectedLinkIds:()=>[],focusNodeId:undefined,nodeHints:()=>({}),pathNodeIds:()=>[]})
+const props=withDefaults(defineProps<{snapshot:Snapshot;positions:Record<string,Position>;affectedNodes?:string[];confirmedLinks?:string[];registrations?:RegistrationIdentity[];mode?:CanvasMode;showDisabled?:boolean;selectedLinkIds?:string[];focusNodeId?:string;focusDirection?:'neighbors'|'upstream'|'downstream';nodeHints?:Record<string,string>;pathNodeIds?:string[]}>(),{mode:'relations',showDisabled:false,focusDirection:'neighbors',affectedNodes:()=>[],confirmedLinks:()=>[],registrations:()=>[],selectedLinkIds:()=>[],focusNodeId:undefined,nodeHints:()=>({}),pathNodeIds:()=>[]})
 const emit=defineEmits<{move:[id:string,position:Position];select:[linkId:string];selectLinks:[ids:string[]];selectNode:[nodeId:string];clear:[];layoutBusy:[busy:boolean];organize:[]}>()
 const container=ref<InstanceType<typeof globalThis.HTMLDivElement>>()
 const presentation=computed(()=>{
- const full=buildPresentation(props.snapshot,props.mode)
+ const full=presentationFor(props.snapshot,props.mode,props.showDisabled)
  if(!props.pathNodeIds.length)return full
  const ids=new Set(props.pathNodeIds)
  return {nodes:full.nodes.filter(n=>ids.has(n.id)),edges:full.edges.filter(e=>ids.has(e.source)&&ids.has(e.target))}
 })
-const height=76
-function nodeWidth(){return props.mode==='chain'?180:224}
+function nodeHeight(){return props.mode==='clusters'?clusterNodeHeight:76}
+function nodeWidth(){return props.mode==='clusters'?clusterNodeWidth:props.mode==='chain'?180:224}
 const loading=ref(false),message=ref('')
 let resizeObserver:InstanceType<typeof globalThis.ResizeObserver>|undefined
 let graph:Graph|undefined
@@ -26,7 +27,7 @@ let fitEpoch=0,layoutEpoch=0,applying=false,previewFrame=0
 let task:LayoutTask|undefined,session:RoutingSession|undefined,plan:LayoutPlan|undefined
 const previewEdges=new Set<string>()
 const nodes=new Map<string,Node>(),edges=new Map<string,Edge>()
-const structure=computed(()=>JSON.stringify([props.mode,presentation.value.nodes.map(n=>[n.id,n.kind]).sort((a,b)=>a[0]!.localeCompare(b[0]!)),presentation.value.edges.map(e=>[e.id,e.source,e.target]).sort((a,b)=>a[0]!.localeCompare(b[0]!))]))
+const structure=computed(()=>JSON.stringify([props.mode,presentation.value.nodes.map(n=>[n.id,n.kind]).sort((a,b)=>a[0]!.localeCompare(b[0]!)),presentation.value.edges.map(e=>[e.id,e.source,e.target,e.label??'']).sort((a,b)=>a[0]!.localeCompare(b[0]!))]))
 function busy(value:boolean){loading.value=value;emit('layoutBusy',value)}
 function apply(update:RoutingUpdate){
  applying=true
@@ -45,7 +46,7 @@ async function arrange(ignoreSaved=true){
  const token=++layoutEpoch
  task?.cancel();globalThis.cancelAnimationFrame(previewFrame);previewEdges.clear();busy(true);message.value=''
  const current=presentation.value
- task=createLayoutTask(JSON.parse(JSON.stringify(current)),nodeWidth(),height)
+ task=createLayoutTask(JSON.parse(JSON.stringify(current)),nodeWidth(),nodeHeight())
  try{
   const result=await task.result
   if(token!==layoutEpoch||!graph)return undefined
@@ -87,11 +88,14 @@ function overlays(){
   const expanded=hoveredEdge===edge.id||props.mode!=='chain'&&(selectedEdge||!!focus&&inFocus)
   const count=edge.linkIds.length>1?`${edge.linkIds.length} 条链路`:''
   const confirmed=edge.linkIds.some(id=>props.confirmedLinks?.includes(id))?' · 业务人工确认（非健康验证）':''
-  const text=expanded?`${name(edge.source)} → ${name(edge.target)}\n${[count,status(edge)+confirmed].filter(Boolean).join(' · ')}`:count
+  const tag=props.mode==='clusters'?middleEllipsis(edge.label??'',18)+(edge.state==='disabled'?' · 已禁用':''):count
+  const text=expanded?`${props.mode==='clusters'?(edge.label??'')+'\n':''}${name(edge.source)} → ${name(edge.target)}\n${[props.mode==='clusters'?'':count,status(edge)+confirmed].filter(Boolean).join(' · ')}`:tag
+  const box=plan?.labels?.[edge.id],route=session?.getRoutes()[edge.id],moved=JSON.stringify(route)!==JSON.stringify(plan?.routes[edge.id])
+  const position=props.mode==='clusters'&&box&&route&&!moved&&!expanded?{distance:Math.max(1.01,labelDistance(route,box)),offset:0}:{distance:0.5,offset:-14}
   cell.attr('line/stroke',color(edge))
   cell.attr('line/strokeWidth',selectedEdge||hoveredEdge===edge.id?3:2)
   cell.attr('line/opacity',focusing&&!inFocus&&hoveredEdge!==edge.id?0.15:1)
-  cell.setLabels(text?[{position:{distance:0.5,offset:-14},attrs:{label:{text,fontSize:12,fill:'#334761'},body:{fill:'#fff',stroke:'#dce4ef',strokeWidth:1,rx:4,ry:4}}}]:[])
+  cell.setLabels(text?[{position,attrs:{label:{text,fontSize:12,fill:'#334761'},body:{fill:'#fff',stroke:'#dce4ef',strokeWidth:1,rx:4,ry:4}}}]:[])
  }
 }
 function port(edge:PresentationEdge,end:'source'|'target'){return `${edge.id}:${end}`}
@@ -104,9 +108,9 @@ function draw(){
  for(const n of presentation.value.nodes){
   const p=positions[n.id]!
   const related=presentation.value.edges.flatMap(e=>(['source','target'] as const).filter(end=>e[end]===n.id).map(end=>{const anchor=plan!.ports[e.id]![end];return {id:port(e,end),group:anchor.side,args:{x:anchor.side==='right'?nodeWidth():0,y:anchor.offset}}}))
-  const cell=graph.createNode({id:n.id,x:p.x,y:p.y,width:nodeWidth(),height,shape:'rect',markup:[{tagName:'rect',selector:'body'},{tagName:'text',selector:'label'},{tagName:'text',selector:'meta'}],
+  const cell=graph.createNode({id:n.id,x:p.x,y:p.y,width:nodeWidth(),height:nodeHeight(),shape:'rect',markup:[{tagName:'title',selector:'title'},{tagName:'rect',selector:'body'},{tagName:'text',selector:'label'},{tagName:'text',selector:'meta'}],
    ports:{groups:{left:{position:'absolute',attrs:{circle:{r:0,magnet:false}}},right:{position:'absolute',attrs:{circle:{r:0,magnet:false}}}},items:related},
-   attrs:{body:{fill:n.kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:n.kind==='kafka'?'#6386c7':'#8b70ba',rx:8,ry:8},label:{text:name(n.id),refX:'50%',refY:'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:`${n.kind==='kafka'?'Kafka':n.linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[n.id]?' · '+props.nodeHints[n.id]:''}`,refX:'50%',refY:'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
+   attrs:{title:{text:name(n.id)},body:{fill:n.kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:n.kind==='kafka'?'#6386c7':'#8b70ba',rx:8,ry:8},label:{text:props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id),refX:'50%',refY:'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:`${n.kind==='kafka'?'Kafka':n.linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[n.id]?' · '+props.nodeHints[n.id]:''}`,refX:'50%',refY:'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
   nodes.set(n.id,cell);cells.push(cell)
  }
  for(const edge of presentation.value.edges){
@@ -151,7 +155,7 @@ onMounted(()=>{
 watch(structure,()=>{void arrange(false)})
 watch(()=>props.positions,syncPositions)
 watch([()=>props.snapshot,()=>props.registrations,()=>props.nodeHints],()=>{
- for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',name(n.id));nodes.get(n.id)?.attr('meta/text',`${n.kind==='kafka'?'Kafka':n.linkId?'MM2 同步任务':'MM2'}${props.nodeHints[n.id]?' · '+props.nodeHints[n.id]:''}`)}
+ for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',props.mode==='clusters'?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',`${n.kind==='kafka'?'Kafka':n.linkId?'MM2 同步任务':'MM2'}${props.nodeHints[n.id]?' · '+props.nodeHints[n.id]:''}`)}
  for(const edge of presentation.value.edges){edges.get(edge.id)?.setData(edge);edges.get(edge.id)?.attr('line/strokeDasharray',edge.state==='disabled'?'2 5':edge.stale||edge.state!=='verified'?'6 4':'0')}
  overlays()
 })

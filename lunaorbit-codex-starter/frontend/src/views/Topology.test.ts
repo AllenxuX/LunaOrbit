@@ -2,7 +2,7 @@ import { flushPromises,mount } from '@vue/test-utils'
 import { afterEach,expect,it,vi } from 'vitest'
 import Topology from './Topology.vue'
 import { routeLocationKey } from 'vue-router'
-vi.mock('../components/TopologyCanvas.vue',()=>({default:{props:['snapshot','positions','mode','focusNodeId','focusDirection','selectedLinkIds'],emits:['move','select','selectNode','selectLinks'],methods:{fit(){},async arrange(){return {source:{x:24,y:24},target:{x:400,y:24}}}},template:'<div data-canvas><button data-move @click="$emit(\'move\',\'source\',{x:200,y:300})">drag</button></div>'}}))
+vi.mock('../components/TopologyCanvas.vue',()=>({default:{props:['snapshot','positions','mode','focusNodeId','focusDirection','selectedLinkIds','showDisabled'],emits:['move','select','selectNode','selectLinks'],methods:{fit(){},async arrange(){return {source:{x:24,y:24},target:{x:400,y:24}}}},template:'<div data-canvas><button data-move @click="$emit(\'move\',\'source\',{x:200,y:300})">drag</button></div>'}}))
 const testRuntime=vi.hoisted(()=>({value:{mode:'mock',capabilities:{discovery:true,observability:false}}}))
 vi.mock('../composables/useRuntime',async()=>{const {ref}=await import('vue');return {useRuntime:()=>({runtime:ref(testRuntime.value)})}})
 afterEach(()=>{vi.unstubAllGlobals();testRuntime.value.mode='mock'})
@@ -185,7 +185,7 @@ it('keeps selected details below the canvas and supports searching a cluster',as
 it('opens MM2 topology by default and preserves separate relationship and task views',async()=>{
  const w=setup(false,false,'',{},'');await flushPromises()
  expect(w.find('[data-mm2-instance]').exists()).toBe(false)
- expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('chain')
+ expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
  expect(w.find('[data-canvas]').exists()).toBe(true)
  expect(w.get('[data-mode="mm2"]').attributes('aria-pressed')).toBe('true')
  w.findComponent({name:'TopologyCanvas'}).vm.$emit('select','link');await flushPromises()
@@ -204,7 +204,7 @@ it('keeps instance rows available separately from the default continuous topolog
  expect(w.find('[data-mm2-instance]').exists()).toBe(true)
  expect(w.find('[data-canvas]').exists()).toBe(false)
  await w.get('[data-mode="mm2"]').trigger('click')
- expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('chain')
+ expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
  expect(w.find('[data-path-source]').exists()).toBe(true)
  expect(w.find('[data-path-target]').exists()).toBe(true)
  w.unmount()
@@ -216,4 +216,17 @@ it('saves the actual arranged positions returned by the canvas and preserves oth
  await w.get('[data-save]').trigger('click');await flushPromises()
  const call=vi.mocked(fetch).mock.calls.find(c=>c[1]?.method==='PUT'),body=JSON.parse(call?.[1]?.body as string)
  expect(body.positions['relations:source']).toEqual({x:24,y:24});expect(body.positions['relations:target']).toEqual({x:400,y:24});expect(body.positions['chain:source']).toEqual({x:9,y:9});w.unmount()
+})
+
+it('MM2 topology counts enabled links, toggles disabled links and shows direct upstream/downstream counts',async()=>{
+ const w=setup(false,false,'',{},'');await flushPromises()
+ expect(w.text()).toContain('2 个集群 · 1 条启用链路')
+ expect(w.text()).toContain('显示禁用链路（0）')
+ const canvas=w.findComponent({name:'TopologyCanvas'})
+ expect(canvas.props('showDisabled')).toBe(false)
+ await w.get('[data-show-disabled]').setValue(true)
+ expect(canvas.props('showDisabled')).toBe(true)
+ canvas.vm.$emit('selectNode','target');await flushPromises()
+ expect(w.get('[data-direct-counts]').text()).toBe('直接上游 1 · 直接下游 0')
+ w.unmount()
 })

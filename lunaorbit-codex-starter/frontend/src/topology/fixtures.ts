@@ -11,7 +11,8 @@ export function snapshotFromRows(clusters:string[],rows:LinkRow[]):Snapshot {
   for(const c of [source,target])if(!nodes.has(c))nodes.set(c,{id:c,kind:'kafka',label:c,replication_factor:null,rf_status:'unknown'})
   const work='workload:'+name
   nodes.set(work,{id:work,kind:'workload',label:name,replication_factor:null,rf_status:'unknown'})
-  links.push({id,workload_name:name,state:enabled?'declared':'disabled',enabled,verified:false,stale:false} as Link)
+  const mapping=(alias:string)=>({alias,status:'unknown',method:'fixture',confidence:'low',candidate_ids:[]})
+  links.push({id,workload_name:name,source_alias:source,target_alias:target,source:mapping(source),target:mapping(target),state:enabled?'declared':'disabled',enabled,verified:false,stale:false} as unknown as Link)
   edges.push({id:id+':in',source,target:work,link_id:id,relation:'declared_input',stale:false,evidence:[]},{id:id+':out',source:work,target,link_id:id,relation:'declared_output',stale:false,evidence:[]})
  }
  return {scope_id:'fixture',synthetic:true,observed_at:'',attempted_at:'',stale:false,nodes:[...nodes.values()],edges,links,issues:[]}
