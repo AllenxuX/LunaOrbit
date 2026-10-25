@@ -7,10 +7,18 @@ export interface Link {
  confidence:string;declared:boolean;observed:boolean;verified:boolean;stale:boolean;state:string;observed_at:string
  source:Mapping;target:Mapping;evidence:Evidence[];notes:string[]
  runtime:{generation:number;observed_generation:number;replicas:number;ready_replicas:number;pod_candidates:number;pod_association:string}
+ /** Auto-discovery only: Kubernetes cluster name; scope_id is added client-side when scopes are merged. */
+ k8s_cluster?:string;scope_id?:string
 }
 export interface GraphNode { id:string;kind:'kafka'|'workload';label:string;registration_id?:string;replication_factor:number|null;rf_status:string }
 export interface GraphEdge { id:string;source:string;target:string;link_id:string;relation:string;stale:boolean;evidence:Evidence[] }
-export interface Snapshot { scope_id:string;synthetic:boolean;observed_at:string;attempted_at:string;stale:boolean;nodes:GraphNode[];edges:GraphEdge[];links:Link[];issues:{code:string;namespace?:string;workload_uid?:string}[] }
+export interface WorkloadClass { k8s_cluster:string;namespace:string;name:string;workload_uid:string;status:'confirmed'|'suspected';signals:string[] }
+export interface ScanSummary { k8s_cluster:string;namespaces:number;deployments:number;namespaces_with_mm2:number;confirmed:number;suspected:number }
+export interface Snapshot { scope_id:string;synthetic:boolean;observed_at:string;attempted_at:string;stale:boolean;nodes:GraphNode[];edges:GraphEdge[];links:Link[];issues:{code:string;namespace?:string;workload_uid?:string}[];workloads?:WorkloadClass[];scan?:ScanSummary }
+/** /discovery/scopes row; auto-only fields are absent for the legacy single scope. */
+export interface ScopeInfo { id:string;synthetic:boolean;k8s_cluster?:string;auto?:boolean;removed?:boolean;removed_at?:string;kite_error?:string }
+/** One scope with its latest snapshot, or why none could be read (NO_SNAPSHOT = never collected). */
+export interface ScopeEntry { scope:ScopeInfo;snapshot?:Snapshot;error?:string }
 export interface Filters { room:string;environment:string }
 export interface Layers { kafka:boolean;workloads:boolean }
 export interface Position {x:number;y:number}
