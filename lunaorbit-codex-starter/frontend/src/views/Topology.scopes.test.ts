@@ -12,7 +12,7 @@ const A=()=>scopeSnapshot('k8s-a','edge-a',[['A1','luna','mm2','k1','k2']])
 const B=()=>scopeSnapshot('k8s-b','edge-b',[['B1','luna','mm2','k3','k4']])
 const S=(id:string,c:string,p:Partial<ScopeInfo>={}):ScopeInfo=>({id,synthetic:false,k8s_cluster:c,auto:true,...p})
 const registry=[{id:'k1',display_name:'luna-k1',room:'bj',environment:'prod',enabled:true},{id:'k2',display_name:'luna-k2',room:'bj',environment:'prod',enabled:true},{id:'k3',display_name:'luna-k3',room:'sh',environment:'uat',enabled:true},{id:'k4',display_name:'luna-k4',room:'sh',environment:'uat',enabled:true}]
-function setup(scopes:ScopeInfo[],snaps:Record<string,Snapshot|undefined>,bindStatus=200){
+function setup(scopes:ScopeInfo[],snaps:Record<string,Snapshot|undefined>,bindStatus=200,removedRuns:string[]=[]){
  const calls:string[]=[]
  vi.stubGlobal('fetch',vi.fn(async(url:string,init?:RequestInit)=>{
   calls.push(`${init?.method??'GET'} ${url}`)
@@ -20,6 +20,8 @@ function setup(scopes:ScopeInfo[],snaps:Record<string,Snapshot|undefined>,bindSt
   if(url.endsWith('/session'))return json({user_id:'u',mode:'information'})
   if(url.endsWith('/discovery/scopes'))return json({items:scopes})
   if(url.includes('/kafka/clusters'))return json({items:registry,total:registry.length})
+  const run=url.match(/scopes\/([^/]+)\/runs$/);if(run&&removedRuns.includes(run[1]!))return json({error:{code:'SCOPE_REMOVED'}},409)
+  if(url.endsWith('/runs/latest'))return json({job_id:'j',status:'done'})
   if(url.endsWith('/bindings'))return bindStatus===200?json({}):json({error:{code:'SCOPE_REMOVED'}},bindStatus)
   const m=url.match(/scopes\/([^/]+)\/snapshot/);if(m){const s=snaps[decodeURIComponent(m[1]!)];return s?json({snapshot:s,total:s.links.length,page:1,page_size:100}):json({error:{code:'NOT_FOUND'}},404)}
   return json({})
@@ -113,11 +115,19 @@ describe('topology with auto-discovered K8s scopes',()=>{
   expect(w.text()).not.toContain('资源发现完成')
   w.unmount()
  })
- // KNOWN DEFECT (LUNA-38, reported, not fixed): api/registry.ts only forwards AUTHORIZER_UNVERIFIED as an
- // error code, so SCOPE_REMOVED arrives as REGISTRY_ERROR/409 and the generic 409 text is shown instead.
- it.fails('409 SCOPE_REMOVED shows the removed-cluster message',async()=>{
+ it('409 SCOPE_REMOVED shows the removed-cluster message',async()=>{
   const {w}=setup([S('k8s-a','edge-a'),S('k8s-b','edge-b')],{'k8s-a':A(),'k8s-b':B()},409);await settle()
   await bindB1(w)
   try{expect(w.get('[role="alert"]').text()).toContain('该 K8s 集群已被 Kite 移除，不能新增绑定')}finally{w.unmount()}
+ })
+ it('retrying or refreshing a scope that Kite has removed says so clearly',async()=>{
+  const b={...B(),stale:true,observed_at:old,issues:[{code:'TIMEOUT'}]}
+  const {w}=setup([S('k8s-a','edge-a'),S('k8s-b','edge-b')],{'k8s-a':A(),'k8s-b':b},200,['k8s-b']);await settle()
+  await w.get('[data-scope-failure="k8s-b"] button').trigger('click');await settle()
+  expect(w.text()).toContain('edge-b 已被 Kite 移除，未重新采集')
+  await w.get('[data-scope-refresh]').trigger('click');await settle()
+  expect(w.text()).toContain('edge-b 已被 Kite 移除，未重新采集')
+  expect(canvasLinks(w).map(l=>l.id)).toEqual(['A1','B1'])
+  w.unmount()
  })
 })

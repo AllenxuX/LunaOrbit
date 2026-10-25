@@ -193,7 +193,8 @@ async function discoverScopes(ids:string[]){
   entries.value=rows;snapshot.value=mergeEntries(rows,{includeRemoved:includeRemoved.value});restorePositions()
   if(!ready.value)await loadView(id,scope.value)
   if(!current(id))return;ready.value=true
-  notice.value=results.some(Boolean)?'部分范围未完整成功；请查看范围栏中的失败项。':'资源发现完成；链路健康仍未验证'
+  const gone=ids.filter((_,i)=>results[i]==='SCOPE_REMOVED').map(sid=>scopes.value.find(x=>x.id===sid)?.k8s_cluster??sid),failed=results.some(r=>r&&r!=='SCOPE_REMOVED')
+  notice.value=gone.length?`${gone.join('、')} 已被 Kite 移除，未重新采集；历史快照和绑定仍保留。${failed?'其余部分范围未完整成功，请查看范围栏中的失败项。':''}`:failed?'部分范围未完整成功；请查看范围栏中的失败项。':'资源发现完成；链路健康仍未验证'
  }catch(e){if(current(id))error.value=message(e)}finally{if(current(id))busy.value=false}
 }
 async function reload() {

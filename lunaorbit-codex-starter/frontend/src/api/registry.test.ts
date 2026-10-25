@@ -122,3 +122,15 @@ it('does not retry failed registrations while continuing pending registrations',
  expect(fetcher.mock.calls.filter(([url])=>url.includes('/failed/probe'))).toHaveLength(0)
  expect(fetcher.mock.calls.filter(([url])=>url.includes('/pending/probe'))).toHaveLength(1)
 })
+
+it('forwards SCOPE_REMOVED only for a 409 and leaves other codes generic', async () => {
+  const reply = (body: unknown, status: number) => vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status })))
+  reply({ error: { code: 'SCOPE_REMOVED', message: 'private-upstream' } }, 409)
+  await expect(registryRequest('/discovery/scopes/x/bindings', 'PUT', {})).rejects.toMatchObject({ code: 'SCOPE_REMOVED', status: 409 })
+  reply({ error: { code: 'CONFLICT' } }, 409)
+  await expect(registryRequest('/discovery/scopes/x/bindings', 'PUT', {})).rejects.toMatchObject({ code: 'REGISTRY_ERROR', status: 409, message: '添加已更新，请关闭表单并刷新后重试' })
+  reply({ error: { code: 'SCOPE_REMOVED' } }, 500)
+  await expect(registryRequest('/x')).rejects.toMatchObject({ code: 'REGISTRY_ERROR', status: 500 })
+  reply({ error: { code: 'SCOPE_REMOVED' } }, 501)
+  await expect(registryRequest('/x')).rejects.toMatchObject({ code: 'REGISTRY_ERROR' })
+})

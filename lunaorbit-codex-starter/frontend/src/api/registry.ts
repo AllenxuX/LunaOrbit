@@ -71,7 +71,7 @@ export async function registryRequest<T>(path: string, method = 'GET', body?: un
       const messages: Record<number, string> = { 401: '开发会话已失效，请刷新页面', 403: '当前操作未获授权', 409: '添加已更新，请关闭表单并刷新后重试', 429: '请求过于频繁，请稍后重试' }
       // Forward only explicitly recognized machine codes, never upstream text.
       let code = 'REGISTRY_ERROR'
-      try { const error = await response.json(); if (response.status === 501 && error?.error?.code === 'AUTHORIZER_UNVERIFIED') code = 'AUTHORIZER_UNVERIFIED' } catch { /* non-JSON errors retain safe generic text */ }
+      try { const error = await response.json(); if (response.status === 501 && error?.error?.code === 'AUTHORIZER_UNVERIFIED') code = 'AUTHORIZER_UNVERIFIED'; else if (response.status === 409 && error?.error?.code === 'SCOPE_REMOVED') code = 'SCOPE_REMOVED' } catch { /* non-JSON errors retain safe generic text */ }
       throw new ApiError(isInformationMode() && [401, 403].includes(response.status) ? '信息服务暂不可用，请检查服务配置后刷新。' : messages[response.status] ?? '操作失败，请稍后重试', code, response.status)
     }
     if (response.status === 204) return undefined as T
