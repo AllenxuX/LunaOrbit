@@ -20,6 +20,29 @@ func TestLabDecoderFailsClosed(t *testing.T) {
 	}
 }
 
+// Observed on the in-cluster Kite v0.16.0 list endpoints: no list
+// resourceVersion and a fixed non-paginating continue marker.
+func TestLabDecoderAcceptsContinueNotSupportedEnvelope(t *testing.T) {
+	item := `{"metadata":{"name":"mm2","namespace":"luna-kafka","uid":"u1","resourceVersion":"7"},"spec":{}}`
+	var out []any
+	body := `{"items":[` + item + `],"metadata":{"continue":"continue-not-supported"}}`
+	if e := (LabV016Decoder{}).DecodeResource("pods", false, []byte(body), &out); e != nil || len(out) != 1 {
+		t.Fatalf("observed in-cluster envelope rejected: %v", e)
+	}
+	for _, bad := range []string{
+		`{"items":[` + item + `],"metadata":{"continue":"next-page"}}`,
+		`{"items":[` + item + `],"metadata":{"continue":"continue-not-supported","remainingItemCount":3}}`,
+		`{"items":[` + item + `],"metadata":{"continue":"continue-not-supported","resourceVersion":""}}`,
+		`{"items":null,"metadata":{"continue":"continue-not-supported"}}`,
+		`{"items":[{"metadata":{"name":"x","resourceVersion":"1"},"spec":{}}],"metadata":{"continue":"continue-not-supported"}}`,
+	} {
+		var o []any
+		if (LabV016Decoder{}).DecodeResource("pods", false, []byte(bad), &o) == nil {
+			t.Fatalf("accepted invalid envelope %s", bad)
+		}
+	}
+}
+
 func TestLabDecoderRejectsInvalidObjectProjections(t *testing.T) {
 	meta := `"metadata":{"name":"synthetic","uid":"synthetic-uid","resourceVersion":"1"}`
 	for _, kind := range []string{"deployments", "pods", "configmaps"} {

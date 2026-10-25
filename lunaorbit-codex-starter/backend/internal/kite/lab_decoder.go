@@ -47,12 +47,17 @@ func (LabV016Decoder) DecodeResource(kind string, single bool, body []byte, targ
 		return json.Unmarshal(body, target)
 	}
 	var rv string
-	if json.Unmarshal(meta["resourceVersion"], &rv) != nil || rv == "" {
-		return bad()
-	}
+	// Some v0.16.0 deployments omit the list resourceVersion and mark the
+	// single, non-paginated page with a fixed continue value; accept only that.
+	var cont string
 	if raw, ok := meta["continue"]; ok {
-		var v string
-		if json.Unmarshal(raw, &v) != nil || v != "" {
+		if json.Unmarshal(raw, &cont) != nil || (cont != "" && cont != "continue-not-supported") {
+			return bad()
+		}
+	}
+	rawRV, hasRV := meta["resourceVersion"]
+	if hasRV || cont != "continue-not-supported" {
+		if json.Unmarshal(rawRV, &rv) != nil || rv == "" {
 			return bad()
 		}
 	}
