@@ -50,10 +50,10 @@ func run() error {
 		var observationStore observability.Store = observability.NewMemoryStore()
 		var workspaceStore workspace.Store = workspace.NewMemoryStore()
 		var informationStore information.Store = information.NewMemoryStore()
-		if cfg.RegistryMode == "postgres-mock" {
+		if cfg.PersistentRegistry() {
 			db, err := openRegistryDatabase(cfg)
 			if err != nil {
-				return errors.New("development database unavailable")
+				return err
 			}
 			defer db.Close()
 			store = registry.NewPostgresStore(db)
@@ -130,7 +130,7 @@ func run() error {
 				}
 				defer discoveryService.Close()
 				observationService := observability.NewService(discoveryService, observability.NewMockProvider(time.Minute), observationStore, observability.ServiceConfig{TTL: time.Minute})
-				changeService, e := configureChanges(changeStore, discoveryService, cfg.RegistryMode == "postgres-mock", os.Getenv)
+				changeService, e := configureChanges(changeStore, discoveryService, cfg.PersistentRegistry(), os.Getenv)
 				if e != nil {
 					return e
 				}
@@ -153,10 +153,10 @@ func run() error {
 				})
 			}
 			var key []byte
-			if cfg.RegistryMode == "postgres-mock" {
+			if cfg.PersistentRegistry() {
 				key, _ = hex.DecodeString(cfg.DevSessionKey)
 			}
-			if err := registry.MountModules(router, service, cfg.RegistryMode == "postgres-mock", key, modules...); err != nil {
+			if err := registry.MountModules(router, service, cfg.PersistentRegistry(), key, modules...); err != nil {
 				return err
 			}
 		}

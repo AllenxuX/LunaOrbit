@@ -16,15 +16,25 @@ import (
 	"time"
 )
 
+// registryDatabaseWait bounds how long lab/release startup waits for PostgreSQL before failing.
+var registryDatabaseWait = 20 * time.Second
+
 func openRegistryDatabase(cfg config.Config) (*sql.DB, error) {
-	deadline := time.Now().Add(20 * time.Second)
+	open, unavailable := registry.OpenDevelopmentDatabase, errors.New("development database unavailable")
+	if cfg.RegistryMode == "postgres" {
+		open, unavailable = registry.OpenDatabase, errors.New("registry database unavailable")
+		if _, err := registry.ParseDatabaseURL(cfg.DatabaseURL); err != nil {
+			return nil, err
+		}
+	}
+	deadline := time.Now().Add(registryDatabaseWait)
 	for {
-		db, err := registry.OpenDevelopmentDatabase(cfg.DatabaseURL)
+		db, err := open(cfg.DatabaseURL)
 		if err == nil {
 			return db, nil
 		}
 		if (cfg.RuntimeMode != "admin-lab" && cfg.RuntimeMode != "readonly-lab") || time.Now().After(deadline) {
-			return nil, errors.New("development database unavailable")
+			return nil, unavailable
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -58,7 +68,7 @@ func configureWorkspace(r *registry.Service, store workspace.Store, cfg config.C
 	if cfg.AccountMasterKey != "" {
 		service.AccountKey, _ = hex.DecodeString(cfg.AccountMasterKey)
 	}
-	if !native && cfg.RegistryMode != "postgres-mock" && len(service.AccountKey) == 0 {
+	if !native && !cfg.PersistentRegistry() && len(service.AccountKey) == 0 {
 		service.AccountKey = make([]byte, 32)
 		if _, err := rand.Read(service.AccountKey); err != nil {
 			return nil, err

@@ -74,8 +74,11 @@ func Load(getenv func(string) string) (Config, error) {
 	if c.RegistryMode == "" {
 		c.RegistryMode = "disabled"
 	}
-	if c.RegistryMode != "disabled" && c.RegistryMode != "mock" && c.RegistryMode != "postgres-mock" {
+	if c.RegistryMode != "disabled" && c.RegistryMode != "mock" && c.RegistryMode != "postgres-mock" && c.RegistryMode != "postgres" {
 		return Config{}, errors.New("invalid REGISTRY_MODE")
+	}
+	if c.RegistryMode == "postgres" && c.PlatformMode != "information" {
+		return Config{}, errors.New("REGISTRY_MODE=postgres requires PLATFORM_MODE=information")
 	}
 	identityMode := getenv("IDENTITY_MODE")
 	if c.PlatformMode == "information" {
@@ -98,7 +101,7 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("discovery mock requires explicit registry development mode")
 	}
 	if c.RuntimeMode == "readonly-lab" || c.RuntimeMode == "admin-lab" {
-		if (c.RegistryMode != "mock" && c.RegistryMode != "postgres-mock") || c.DiscoveryMode != "readonly-lab" {
+		if (c.RegistryMode != "mock" && !c.PersistentRegistry()) || c.DiscoveryMode != "readonly-lab" {
 			return Config{}, errors.New("lab requires guarded development registry and lab discovery")
 		}
 	} else if c.DiscoveryMode == "readonly-lab" {
@@ -134,10 +137,10 @@ func Load(getenv func(string) string) (Config, error) {
 			return Config{}, errors.New("registry development mode requires loopback HTTP_ADDR")
 		}
 	}
-	if c.RegistryMode == "postgres-mock" {
+	if c.PersistentRegistry() {
 		c.DatabaseURL = getenv("DATABASE_URL")
 		if c.DatabaseURL == "" {
-			return Config{}, errors.New("DATABASE_URL required for postgres-mock")
+			return Config{}, errors.New("DATABASE_URL required for " + c.RegistryMode)
 		}
 		if c.PlatformMode != "information" {
 			c.DevSessionKey = getenv("DEV_SESSION_KEY")
@@ -166,4 +169,9 @@ func Load(getenv func(string) string) (Config, error) {
 	c.KiteWrites = getenv("ENABLE_KITE_WRITES") == "true"
 	c.KafkaWrites = getenv("ENABLE_KAFKA_WRITES") == "true"
 	return c, nil
+}
+
+// PersistentRegistry reports whether registry data lives in PostgreSQL (postgres-mock for development, postgres for release).
+func (c Config) PersistentRegistry() bool {
+	return c.RegistryMode == "postgres-mock" || c.RegistryMode == "postgres"
 }
