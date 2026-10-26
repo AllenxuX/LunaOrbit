@@ -37,6 +37,8 @@ type Mapping struct {
 	RegistrationID string   `json:"registration_id,omitempty"`
 	CandidateIDs   []string `json:"candidate_ids"`
 	ClusterID      string   `json:"cluster_id,omitempty"`
+	// BootstrapAddresses is host:port only (no scheme, user info or path), parsed from the MM2 configuration.
+	BootstrapAddresses []string `json:"bootstrap_addresses"`
 }
 type Runtime struct {
 	Generation         int64  `json:"generation"`

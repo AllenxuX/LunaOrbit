@@ -3,6 +3,7 @@ package discovery
 import (
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -20,7 +21,7 @@ func addresses(values []string) map[string]bool {
 // Match never confirms an alias merely because a bootstrap address matches.
 // Registrations are already owner-filtered by the service, not by display name.
 func Match(scope, namespace, uid, alias string, seeds []string, registrations []Registration, bindings []ManualBinding, identities []AliasIdentity) Mapping {
-	result := Mapping{Alias: alias, Status: "unknown", Method: "unmatched", Confidence: "low", CandidateIDs: []string{}}
+	result := Mapping{Alias: alias, Status: "unknown", Method: "unmatched", Confidence: "low", CandidateIDs: []string{}, BootstrapAddresses: bootstrapAddresses(seeds)}
 	byID := map[string]Registration{}
 	for _, r := range registrations {
 		if r.Enabled {
@@ -133,7 +134,7 @@ func conflictingMapping(a, b Mapping) Mapping {
 	if b.RegistrationID != "" {
 		set[b.RegistrationID] = true
 	}
-	result := Mapping{Alias: a.Alias, Status: "unknown", Method: "configuration_conflict", Confidence: "low", CandidateIDs: []string{}}
+	result := Mapping{Alias: a.Alias, Status: "unknown", Method: "configuration_conflict", Confidence: "low", CandidateIDs: []string{}, BootstrapAddresses: mergeAddresses(a.BootstrapAddresses, b.BootstrapAddresses)}
 	for id := range set {
 		result.CandidateIDs = append(result.CandidateIDs, id)
 	}
@@ -142,4 +143,42 @@ func conflictingMapping(a, b Mapping) Mapping {
 		result.Status = "ambiguous"
 	}
 	return result
+}
+
+// bootstrapAddresses returns the configured bootstrap servers as host:port only, in order and de-duplicated
+// (case-insensitively). Scheme prefixes, user info/credentials and paths are dropped; anything that does not
+// parse as host:port is skipped. It never returns nil, so the JSON field is always a list.
+func bootstrapAddresses(values []string) []string {
+	result, seen := []string{}, map[string]bool{}
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			item := strings.TrimSpace(part)
+			if i := strings.Index(item, "://"); i >= 0 {
+				item = item[i+3:]
+			}
+			if i := strings.LastIndex(item, "@"); i >= 0 {
+				item = item[i+1:]
+			}
+			if i := strings.Index(item, "/"); i >= 0 {
+				item = item[:i]
+			}
+			host, port, e := net.SplitHostPort(item)
+			if e != nil || host == "" || strings.ContainsAny(host, " @") {
+				continue
+			}
+			if n, e := strconv.Atoi(port); e != nil || n <= 0 || n > 65535 {
+				continue
+			}
+			address := net.JoinHostPort(host, port)
+			if key := strings.ToLower(address); !seen[key] {
+				seen[key] = true
+				result = append(result, address)
+			}
+		}
+	}
+	return result
+}
+
+func mergeAddresses(a, b []string) []string {
+	return bootstrapAddresses(append(append([]string{}, a...), b...))
 }
