@@ -61,7 +61,8 @@ watch(() => props.endpoint.id, () => {
       <dt>地址</dt><dd data-addresses>{{ shown.join(', ') }}<template v-if="!expanded && count > 2"> 等 {{ count }} 个</template><button v-if="!expanded && (count > 2 || endpoint.addresses.length !== addresses.length)" data-expand-addresses class="link-button" @click="expanded = true">展开全部地址</button><span v-if="!endpoint.resolved.length && endpoint.addresses.length" class="muted"> · 地址未解析</span></dd>
       <dt>访问状态</dt><dd data-access :class="['access', access.tone]">{{ access.symbol }} {{ access.text }}</dd>
       <dt>最近成功采集</dt><dd>{{ endpoint.access === 'readable' && checked ? checked : '尚未成功采集' }}</dd>
-      <template v-if="endpoint.environment || endpoint.room"><dt>环境 / 机房</dt><dd>{{ [endpoint.environment, endpoint.room].filter(Boolean).join(' · ') }}</dd></template>
+      <template v-if="endpoint.environment || endpoint.room"><dt>环境 / 机房</dt><dd data-business>{{ [endpoint.environment, endpoint.room].filter(Boolean).join(' · ') }}</dd></template>
+      <template v-if="endpoint.description"><dt>说明</dt><dd data-description>{{ endpoint.description }}</dd></template>
     </dl>
     <p v-if="endpoint.credential_source" class="note" data-credential-source>凭据来源：{{ endpoint.credential_source }}</p>
     <div class="tabs" role="tablist"><button role="tab" data-tab-topics :aria-selected="tab === 'topics'" @click="tab = 'topics'">Topic</button><button role="tab" data-tab-groups :aria-selected="tab === 'groups'" @click="openGroups">消费组（展开查询）</button></div>

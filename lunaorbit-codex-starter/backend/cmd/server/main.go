@@ -116,7 +116,7 @@ func run() error {
 					}
 					result := make([]discovery.Registration, 0, len(rows))
 					for _, row := range rows {
-						result = append(result, discovery.Registration{ID: row.ID, DisplayName: row.DisplayName, BootstrapServers: row.BootstrapServers, Enabled: row.Enabled, DiscoveredClusterID: row.DiscoveredClusterID, IdentityVerified: row.Status == "connected" && row.LastProbeErrorCode == "" && row.LastProbeAt != nil})
+						result = append(result, discoveryRegistration(row))
 					}
 					return result, nil
 				}

@@ -11,6 +11,7 @@ export interface CatalogEndpoint {
   display_name?: string
   room?: string
   environment?: string
+  description?: string
   ambiguous?: string[]
   access: string
   access_reason?: string

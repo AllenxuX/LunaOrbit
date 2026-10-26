@@ -4,7 +4,7 @@ import ClusterDrawer from './ClusterDrawer.vue'
 import type { CatalogEndpoint } from '../api/catalog'
 
 const RouterLinkStub = { props: ['to'], template: '<a :href="String(to)"><slot /></a>' }
-const row = (over: Partial<CatalogEndpoint> = {}): CatalogEndpoint => ({ id: 'auto:1', source: 'merged', aliases: ['k1'], members: [], addresses: ['kafka-k1.lab:9092', 'kafka-k1b.lab:9092', 'kafka-k1c.lab:9092'], resolved: ['10.0.0.1:9092'], registration_id: 'reg-1', display_name: 'luna-k1', room: 'bj', environment: 'prod', access: 'readable', read_via: 'auto', lineage_id: 'reg-1', credential_source: 'MM2 配置（只读）', checked_at: '2026-10-26T08:00:00Z', ...over })
+const row = (over: Partial<CatalogEndpoint> = {}): CatalogEndpoint => ({ id: 'auto:1', source: 'merged', aliases: ['k1'], members: [], addresses: ['kafka-k1.lab:9092', 'kafka-k1b.lab:9092', 'kafka-k1c.lab:9092'], resolved: ['10.0.0.1:9092'], registration_id: 'reg-1', display_name: 'luna-k1', room: 'bj', environment: 'prod', access: 'readable', read_via: 'auto', lineage_id: 'reg-1', description: '交易主集群', credential_source: 'MM2 配置（只读）', checked_at: '2026-10-26T08:00:00Z', ...over })
 
 function api(topicCount = 45) {
   const names = Array.from({ length: topicCount }, (_, i) => `t-${String(i).padStart(2, '0')}`)
@@ -34,6 +34,8 @@ describe('ClusterDrawer', () => {
     expect(text).toContain('自动发现 · 已合并登记信息')
     expect(text).toContain('凭据来源：MM2 配置（只读）')
     expect(text).toContain('bj')
+    expect(w.get('[data-business]').text()).toContain('prod · bj')
+    expect(text).toContain('交易主集群')
     expect(text).not.toMatch(/SCRAM|PLAIN|sasl|jaas|用户名|password/i)
     await w.get('[data-expand-addresses]').trigger('click')
     expect(w.get('[data-addresses]').text()).toContain('kafka-k1c.lab:9092')
@@ -74,12 +76,13 @@ describe('ClusterDrawer', () => {
   })
   it('does not query or claim credentials when the endpoint is unreadable', async () => {
     const calls = api()
-    const w = mount(ClusterDrawer, { props: { endpoint: row({ access: 'credentials_unavailable', credential_source: undefined, source: 'auto', registration_id: undefined }) }, global: { stubs: { RouterLink: RouterLinkStub } } })
+    const w = mount(ClusterDrawer, { props: { endpoint: row({ access: 'credentials_unavailable', credential_source: undefined, source: 'auto', registration_id: undefined, room: undefined, environment: undefined, description: undefined }) }, global: { stubs: { RouterLink: RouterLinkStub } } })
     await flushPromises()
     expect(calls.length).toBe(0)
     expect(w.text()).toContain('不可读 · 凭据未开启或不可读')
     expect(w.text()).not.toContain('凭据来源')
     expect(w.text()).toContain('尚未成功采集')
+    expect(w.find('[data-business]').exists()).toBe(false)
   })
   it('resets paging and selection when switching nodes', async () => {
     api()

@@ -45,6 +45,7 @@ type CatalogEndpoint struct {
 	DisplayName      string     `json:"display_name,omitempty"`
 	Room             string     `json:"room,omitempty"`
 	Environment      string     `json:"environment,omitempty"`
+	Description      string     `json:"description,omitempty"`
 	Ambiguous        []string   `json:"ambiguous,omitempty"`
 	Access           string     `json:"access"`
 	AccessReason     string     `json:"access_reason,omitempty"`
@@ -182,7 +183,7 @@ func BuildCatalog(eps []AutoEndpoint, regs []Registration, probes map[string]Pro
 		}
 		if len(matches) == 1 {
 			r := matches[0]
-			row.Source, row.RegistrationID, row.DisplayName, row.Room, row.Environment = SourceMerged, r.ID, r.DisplayName, r.Room, r.Environment
+			row.Source, row.RegistrationID, row.DisplayName, row.Room, row.Environment, row.Description = SourceMerged, r.ID, r.DisplayName, r.Room, r.Environment, r.Description
 		} else if len(matches) > 1 {
 			for _, r := range matches {
 				row.Ambiguous = append(row.Ambiguous, r.ID)
@@ -205,7 +206,7 @@ func BuildCatalog(eps []AutoEndpoint, regs []Registration, probes map[string]Pro
 		if !r.Enabled || used[r.ID] {
 			continue
 		}
-		out = append(out, CatalogEndpoint{ID: "reg:" + r.ID, Source: SourceManual, Aliases: []string{}, Members: []string{}, Addresses: sortedKeys(addrSet(r.BootstrapServers)), Resolved: []string{}, ClusterID: r.DiscoveredClusterID, RegistrationID: r.ID, DisplayName: r.DisplayName, Room: r.Room, Environment: r.Environment, Access: "registered", ReadVia: "registration", LineageID: r.ID})
+		out = append(out, CatalogEndpoint{ID: "reg:" + r.ID, Source: SourceManual, Aliases: []string{}, Members: []string{}, Addresses: sortedKeys(addrSet(r.BootstrapServers)), Resolved: []string{}, ClusterID: r.DiscoveredClusterID, RegistrationID: r.ID, DisplayName: r.DisplayName, Room: r.Room, Environment: r.Environment, Description: r.Description, Access: "registered", ReadVia: "registration", LineageID: r.ID})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out

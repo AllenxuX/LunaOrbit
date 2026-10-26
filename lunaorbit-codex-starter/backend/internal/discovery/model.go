@@ -168,7 +168,7 @@ type Registration struct {
 	IdentityVerified    bool
 	Enabled             bool
 	// Business fields attached to merged auto endpoints.
-	Room, Environment string
+	Room, Environment, Description string
 }
 type AliasIdentity struct {
 	ScopeID, Namespace, WorkloadUID, Alias, ClusterID string
