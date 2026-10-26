@@ -139,4 +139,5 @@ func (a *Adapter) EndpointTopics(ctx context.Context, endpointID string) ([]stri
 	}
 	return a.Discovery.EndpointTopicNames(ctx, discovery.Actor{ID: a.Workspace, Role: "information"}, endpointID)
 }
+
 var _ EndpointReader = (*Adapter)(nil)
