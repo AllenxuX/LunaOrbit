@@ -38,6 +38,11 @@ func mountInformationPlatform(router *gin.Engine, r *registry.Service, registrat
 	if err != nil {
 		return func() {}, err
 	}
+	if d != nil && cfg.DiscoveryMode == "readonly-lab" {
+		// Credentials and the endpoint catalog live in memory only: collect once at startup
+		// so a restart does not need a manual refresh. Failures are logged, never fatal.
+		go d.DiscoverAll(discovery.Actor{ID: cfg.InformationWorkspaceID, Role: "information"})
+	}
 	close := func() {
 		if d != nil {
 			d.Close()

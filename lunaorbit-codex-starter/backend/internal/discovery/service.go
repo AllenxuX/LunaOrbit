@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"lunaorbit/backend/internal/discovery/collector"
 	"lunaorbit/backend/internal/discovery/mm2auth"
 	"lunaorbit/backend/internal/discovery/resource"
@@ -252,6 +253,30 @@ func (s *Service) WatchClusters(interval time.Duration, list func(context.Contex
 			}
 		}
 	}()
+}
+
+// DiscoverAll starts one collection for every active (not removed) scope. It is used once
+// at startup so the in-memory endpoint catalog is complete without a manual refresh.
+// Failures are only logged; it never blocks startup. Returns how many runs were started.
+func (s *Service) DiscoverAll(actor Actor) int {
+	scopes, e := s.Scopes(actor)
+	if e != nil {
+		slog.Warn("startup_discovery_skipped", "code", "SCOPES_UNAVAILABLE")
+		return 0
+	}
+	started := 0
+	for _, scope := range scopes {
+		if scope.Removed || scope.Synthetic {
+			continue
+		}
+		if _, e := s.Start(s.ctx, actor, scope.ID, "success"); e != nil {
+			slog.Warn("startup_discovery_failed", "scope", scope.ID)
+			continue
+		}
+		started++
+	}
+	slog.Info("startup_discovery_started", "scopes", started)
+	return started
 }
 
 func (s *Service) Scopes(actor Actor) ([]ScopeInfo, error) {
