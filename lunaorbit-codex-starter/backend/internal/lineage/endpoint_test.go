@@ -91,3 +91,21 @@ func TestCatalogAndLineageAgreeOnEndpointIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestLineageIgnoresRemovedMM2(t *testing.T) {
+	old := rule("OLD", confirmed("a", "a"), confirmed("b", "b"))
+	old.Removed = true
+	p := chainProvider(old, rule("L2", confirmed("a", "a"), confirmed("c", "c")))
+	g, err := New(p).Trace(context.Background(), Query{"a", "orders", 2, "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range g.Nodes {
+		if n.ClusterID == "b" || n.LinkID == "OLD" {
+			t.Fatalf("removed MM2 traced: %+v", n)
+		}
+	}
+	if len(g.Edges) == 0 {
+		t.Fatal("current MM2 must still be traced")
+	}
+}

@@ -136,6 +136,9 @@ func (s *Service) Trace(ctx context.Context, q Query) (Graph, error) {
 	endpointNames := map[string]string{}
 	for _, snap := range snapshots {
 		for _, l := range snap.Links {
+			if l.Removed {
+				continue
+			}
 			for _, m := range []discovery.Mapping{l.Source, l.Target} {
 				if id, name, ok := endpointOf(m, clusters); ok && strings.HasPrefix(id, "endpoint-") {
 					if _, seen := endpointNames[id]; !seen {
@@ -255,6 +258,9 @@ func (s *Service) Trace(ctx context.Context, q Query) (Graph, error) {
 collectLinks:
 	for _, snap := range snapshots {
 		for _, l := range snap.Links {
+			if l.Removed {
+				continue
+			}
 			if ctx.Err() != nil || len(links) >= 4096 {
 				linksLimited = true
 				break collectLinks

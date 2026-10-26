@@ -64,33 +64,35 @@ type Declaration struct {
 	ConfigKey                  string `json:"config_key"`
 }
 type Link struct {
-	InternalSeparatorEnabled bool          `json:"internal_separator_enabled"`
-	TopicsExcludeRaw         string        `json:"topics_exclude_raw"`
-	Separator                string        `json:"separator"`
-	TopicFilterClass         string        `json:"topic_filter_class"`
-	SemanticsKnown           bool          `json:"semantics_known"`
-	ID                       string        `json:"id"`
-	Namespace                string        `json:"namespace"`
-	WorkloadUID              string        `json:"workload_uid"`
-	WorkloadName             string        `json:"workload_name"`
-	SourceAlias              string        `json:"source_alias"`
-	TargetAlias              string        `json:"target_alias"`
-	TopicsRaw                string        `json:"topics_raw"`
-	Policy                   string        `json:"policy"`
-	Enabled                  bool          `json:"enabled"`
-	Confidence               string        `json:"confidence"`
-	Declared                 bool          `json:"declared"`
-	Observed                 bool          `json:"observed"`
-	Verified                 bool          `json:"verified"`
-	Stale                    bool          `json:"stale"`
-	State                    string        `json:"state"`
-	ObservedAt               time.Time     `json:"observed_at"`
-	Runtime                  Runtime       `json:"runtime"`
-	Source                   Mapping       `json:"source"`
-	Target                   Mapping       `json:"target"`
-	Evidence                 []Evidence    `json:"evidence"`
-	Notes                    []string      `json:"notes"`
-	Declarations             []Declaration `json:"declarations"`
+	InternalSeparatorEnabled bool   `json:"internal_separator_enabled"`
+	TopicsExcludeRaw         string `json:"topics_exclude_raw"`
+	Separator                string `json:"separator"`
+	TopicFilterClass         string `json:"topic_filter_class"`
+	SemanticsKnown           bool   `json:"semantics_known"`
+	ID                       string `json:"id"`
+	Namespace                string `json:"namespace"`
+	WorkloadUID              string `json:"workload_uid"`
+	WorkloadName             string `json:"workload_name"`
+	SourceAlias              string `json:"source_alias"`
+	TargetAlias              string `json:"target_alias"`
+	TopicsRaw                string `json:"topics_raw"`
+	Policy                   string `json:"policy"`
+	Enabled                  bool   `json:"enabled"`
+	Confidence               string `json:"confidence"`
+	Declared                 bool   `json:"declared"`
+	Observed                 bool   `json:"observed"`
+	Verified                 bool   `json:"verified"`
+	Stale                    bool   `json:"stale"`
+	// Removed: the Deployment no longer exists in a complete collection; kept as history only.
+	Removed      bool          `json:"removed,omitempty"`
+	State        string        `json:"state"`
+	ObservedAt   time.Time     `json:"observed_at"`
+	Runtime      Runtime       `json:"runtime"`
+	Source       Mapping       `json:"source"`
+	Target       Mapping       `json:"target"`
+	Evidence     []Evidence    `json:"evidence"`
+	Notes        []string      `json:"notes"`
+	Declarations []Declaration `json:"declarations"`
 	// KubeCluster is set only for auto-enumerated scopes.
 	KubeCluster string `json:"k8s_cluster,omitempty"`
 }

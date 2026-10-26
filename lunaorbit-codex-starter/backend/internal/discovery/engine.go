@@ -309,10 +309,14 @@ func Build(col resource.Collection, registrations []Registration, bindings []Man
 			note := "not_observed_in_complete_collection"
 			if col.ErrorCode != "" || failedNamespaces[old.Namespace] {
 				note = "collection_failed_evidence_retained"
+				// Unknown whether it still exists: keep the evidence and mark the snapshot stale.
+				result.Stale = true
+			} else {
+				// A complete collection did not see it: history only, never current or stale.
+				old.Removed = true
 			}
 			old.Notes = addNote(old.Notes, note)
 			current[old.ID] = old
-			result.Stale = true
 		}
 	}
 	if len(current) > 1024 {
@@ -375,6 +379,9 @@ func classifyAuto(result *Snapshot, col resource.Collection) {
 func buildGraph(snapshot *Snapshot) {
 	nodes := map[string]Node{}
 	for _, link := range snapshot.Links {
+		if link.Removed {
+			continue
+		}
 		workload := "workload:" + identity(snapshot.ScopeID, link.Namespace, link.WorkloadUID)
 		nodes[workload] = Node{ID: workload, Kind: "workload", Label: link.WorkloadName, RFStatus: "not_applicable"}
 		endpoint := func(mapping Mapping) string {
