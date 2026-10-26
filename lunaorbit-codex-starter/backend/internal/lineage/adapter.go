@@ -131,3 +131,12 @@ func (a *Adapter) Read(ctx context.Context, c, k, r string) (kafkaops.Snapshot, 
 	}
 	return v, e
 }
+
+// EndpointTopics reads topics of a readable auto endpoint through the read-only catalog.
+func (a *Adapter) EndpointTopics(ctx context.Context, endpointID string) ([]string, time.Time, error) {
+	if a.Discovery == nil {
+		return nil, time.Time{}, errors.New("discovery unavailable")
+	}
+	return a.Discovery.EndpointTopicNames(ctx, discovery.Actor{ID: a.Workspace, Role: "information"}, endpointID)
+}
+var _ EndpointReader = (*Adapter)(nil)

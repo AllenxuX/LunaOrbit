@@ -2,10 +2,12 @@ package lineage
 
 import (
 	"context"
+	"errors"
 	"lunaorbit/backend/internal/discovery"
 	"lunaorbit/backend/internal/kafkaops"
 	"strings"
 	"testing"
+	"time"
 )
 
 func confirmed(alias, reg string) discovery.Mapping {
@@ -107,5 +109,49 @@ func TestLineageIgnoresRemovedMM2(t *testing.T) {
 	}
 	if len(g.Edges) == 0 {
 		t.Fatal("current MM2 must still be traced")
+	}
+}
+
+type readableEndpoints struct {
+	fakeProvider
+	topics map[string][]string
+	reads  int
+}
+
+func (r *readableEndpoints) EndpointTopics(_ context.Context, id string) ([]string, time.Time, error) {
+	r.reads++
+	if t, ok := r.topics[id]; ok {
+		return t, time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC), nil
+	}
+	return nil, time.Time{}, errors.New("unreadable")
+}
+
+func TestReadableAutoEndpointsConfirmTopicExistence(t *testing.T) {
+	src, mid := unknownEnd("LAB-SRC", "lab-src:9092"), unknownEnd("LAB-MID", "lab-mid:9092")
+	dst := unknownEnd("LAB-DST", "lab-dst:9092")
+	base := chainProvider(rule("L1", src, mid), rule("L2", mid, dst))
+	p := &readableEndpoints{fakeProvider: base, topics: map[string][]string{
+		EndpointID([]string{"lab-src:9092"}): {"derivatives.test1"},
+		EndpointID([]string{"lab-mid:9092"}): {"other"},
+	}}
+	g, err := New(p).Trace(context.Background(), Query{EndpointID([]string{"lab-src:9092"}), "derivatives.test1", 4, "downstream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byCluster := map[string]Node{}
+	for _, n := range g.Nodes {
+		if n.Kind == "topic" {
+			byCluster[n.ClusterName] = n
+		}
+	}
+	srcNode, midNode, dstNode := byCluster["LAB-SRC · lab-src:9092"], byCluster["LAB-MID · lab-mid:9092"], byCluster["LAB-DST · lab-dst:9092"]
+	if srcNode.Exists == nil || !*srcNode.Exists || srcNode.ExistenceNote != "" || srcNode.ObservedAt.IsZero() || srcNode.Evidence != "observed" {
+		t.Fatalf("readable source must be confirmed: %+v", srcNode)
+	}
+	if midNode.Exists == nil || *midNode.Exists {
+		t.Fatalf("readable endpoint without the topic must say it does not exist: %+v", midNode)
+	}
+	if dstNode.Exists != nil || dstNode.ExistenceNote != "Topic 是否存在无法确认" {
+		t.Fatalf("unreadable endpoint stays unknown: %+v", dstNode)
 	}
 }

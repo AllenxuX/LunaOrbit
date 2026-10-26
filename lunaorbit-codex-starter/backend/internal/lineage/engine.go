@@ -78,6 +78,13 @@ type Provider interface {
 	Applications(context.Context) ([]information.Application, bool, error)
 	Read(context.Context, string, string, string) (kafkaops.Snapshot, error)
 }
+
+// EndpointReader is optionally implemented by providers that can read auto-discovered
+// endpoints (through the read-only catalog). ok=false/err means existence stays unknown.
+type EndpointReader interface {
+	EndpointTopics(ctx context.Context, endpointID string) ([]string, time.Time, error)
+}
+
 type Service struct{ p Provider }
 
 func New(p Provider) *Service { return &Service{p} }
@@ -192,6 +199,24 @@ func (s *Service) Trace(ctx context.Context, q Query) (Graph, error) {
 		inventories[c] = v
 		return v
 	}
+	reader, canRead := s.p.(EndpointReader)
+	loadEndpoint := func(c string) inventory {
+		if v, ok := inventories[c]; ok {
+			return v
+		}
+		v := inventory{topics: map[string]bool{}}
+		if canRead && len(inventories) < 16 && calls < 96 && ctx.Err() == nil {
+			calls++
+			if names, at, err := reader.EndpointTopics(ctx, c); err == nil {
+				v.known, v.at = true, at
+				for _, name := range names {
+					v.topics[name] = true
+				}
+			}
+		}
+		inventories[c] = v
+		return v
+	}
 	nodes := map[string]bool{}
 	edges := map[string]bool{}
 	addNode := func(n Node) bool {
@@ -213,7 +238,15 @@ func (s *Service) Trace(ctx context.Context, q Query) (Graph, error) {
 			return false
 		}
 		if name, ok := endpointNames[c]; ok {
-			return addNode(Node{ID: topicID(c, t), Kind: "topic", Label: t, ClusterID: c, ClusterName: name, Topic: t, Evidence: "configured", ExistenceNote: "Topic 是否存在无法确认"})
+			n := Node{ID: topicID(c, t), Kind: "topic", Label: t, ClusterID: c, ClusterName: name, Topic: t, Evidence: "configured", ExistenceNote: "Topic 是否存在无法确认"}
+			if v := loadEndpoint(c); v.known {
+				b := v.topics[t]
+				n.Exists, n.ExistenceNote, n.ObservedAt = &b, "", v.at
+				if b {
+					n.Evidence = "observed"
+				}
+			}
+			return addNode(n)
 		}
 		v := load(c)
 		n := Node{ID: topicID(c, t), Kind: "topic", Label: t, ClusterID: c, ClusterName: clusters[c], Topic: t, Evidence: "unknown", ObservedAt: v.at}

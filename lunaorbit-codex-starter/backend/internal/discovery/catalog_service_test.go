@@ -142,3 +142,25 @@ func TestFailedAutoAccessFallsBackToRegistrationForReads(t *testing.T) {
 	}
 	t.Fatal("merged k1 not found")
 }
+
+func TestEndpointTopicNamesReadsOnlyReadableAutoEndpoints(t *testing.T) {
+	access := &fakeAccess{}
+	s, _ := credService(t, mm2auth.NewStore())
+	s.SetEndpointAccess(access)
+	runScope(t, s, scopeByCluster(t, s, "edge-a").ID)
+	rows, _ := s.Catalog(context.Background(), autoActor)
+	names, at, err := s.EndpointTopicNames(context.Background(), autoActor, rows[0].LineageID)
+	if err != nil || len(names) != 3 || at.IsZero() {
+		t.Fatalf("%v %v %v", names, at, err)
+	}
+	if _, _, err := s.EndpointTopicNames(context.Background(), autoActor, "endpoint-unknown"); err == nil {
+		t.Fatal("unknown endpoint must not be readable")
+	}
+	off, _ := credService(t, nil)
+	off.SetEndpointAccess(access)
+	runScope(t, off, scopeByCluster(t, off, "edge-a").ID)
+	offRows, _ := off.Catalog(context.Background(), autoActor)
+	if _, _, err := off.EndpointTopicNames(context.Background(), autoActor, offRows[0].LineageID); err == nil {
+		t.Fatal("switch off must not read")
+	}
+}

@@ -198,3 +198,45 @@ func mountCatalog(group *gin.RouterGroup, service *Service, actor func(*gin.Cont
 		c.JSON(200, gin.H{"items": groups})
 	})
 }
+
+// EndpointTopicNames lists topics of the readable auto endpoint whose lineage id matches,
+// through the read-only access. Anything not readable returns an error (existence unknown).
+func (s *Service) EndpointTopicNames(ctx context.Context, actor Actor, lineageID string) ([]string, time.Time, error) {
+	rows, e := s.Catalog(ctx, actor)
+	if e != nil {
+		return nil, time.Time{}, e
+	}
+	s.scopeMu.RLock()
+	creds, access := s.mm2Creds, s.access
+	s.scopeMu.RUnlock()
+	if creds == nil || access == nil {
+		return nil, time.Time{}, fail("CREDENTIALS_OFF")
+	}
+	byKey := map[string]AutoEndpoint{}
+	for _, ep := range s.Endpoints() {
+		byKey[ep.Key] = ep
+	}
+	for _, row := range rows {
+		if row.LineageID != lineageID || row.Access != AccessReadable || row.ReadVia != "auto" {
+			continue
+		}
+		for _, key := range row.Members {
+			cred, ok := creds.Get(key)
+			if !ok {
+				continue
+			}
+			ep := byKey[key]
+			ep.Addresses = row.Addresses
+			topics, err := access.Topics(ctx, ep, cred)
+			if err != nil {
+				return nil, time.Time{}, err
+			}
+			names := make([]string, 0, len(topics))
+			for _, t := range topics {
+				names = append(names, t.Name)
+			}
+			return names, time.Now().UTC(), nil
+		}
+	}
+	return nil, time.Time{}, fail("NOT_FOUND")
+}
