@@ -135,17 +135,17 @@ func Parse(key, text string) (Config, error) {
 			aliases[a] = true
 			continue
 		}
-		field := ""
-		for _, s := range []string{"enabled", "topics.exclude", "topics.blacklist", "topics", "replication.policy.class", "replication.policy.separator", "topic.filter.class", "replication.policy.internal.topic.separator.enabled"} {
-			if strings.HasSuffix(k, "."+s) {
-				field = s
-				break
-			}
-		}
-		route := strings.TrimSuffix(k, "."+field)
+		// MM2 route properties are "<A>-><B>.<property>": aliases never contain ".", so the
+		// route ends at the first "." and the rest is the (possibly multi-segment) property.
+		route, field, _ := strings.Cut(k, ".")
 		pair := strings.Split(route, "->")
 		if len(pair) != 2 || !aliasRE.MatchString(pair[0]) || !aliasRE.MatchString(pair[1]) {
 			issue("invalid_rule")
+			continue
+		}
+		if !routeField(field) {
+			// Known-format MM2 property (emit.*, sync.*, refresh.*, offset-syncs.*, ...) that
+			// does not affect topology: accepted and ignored, never an invalid rule.
 			continue
 		}
 		r := rules[route]
@@ -242,6 +242,16 @@ func isSemanticField(k string) bool {
 	}
 	return false
 }
+
+// routeField reports whether a route property carries topology semantics parsed here.
+func routeField(field string) bool {
+	switch field {
+	case "enabled", "topics", "topics.exclude", "topics.blacklist", "replication.policy.class", "replication.policy.separator", "topic.filter.class", "replication.policy.internal.topic.separator.enabled":
+		return true
+	}
+	return false
+}
+
 func allowed(k string) bool {
 	if k == "clusters" || isSemanticField(k) || strings.HasSuffix(k, ".bootstrap.servers") {
 		return true
