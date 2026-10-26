@@ -172,7 +172,9 @@ const endpointPanel=computed(()=>{
 })
 async function loadCatalog(){try{catalog.value=await readCatalog()}catch{catalog.value=[]}}
 /** Catalog row for the selected node: registration id first, then the MM2 addresses of an unregistered end. */
-const drawerRow=computed(()=>{if(!selectedNode.value||!catalog.value.length)return undefined;const byNode=selectedNode.value.startsWith('catalog:')?catalog.value.find(r=>`catalog:${r.id}`===selectedNode.value):undefined;return byNode??catalogFor(catalog.value,{registrationId:selectedNode.value,addresses:endpointPanel.value?.addresses})})
+/** Registration behind a graph node: kafka:<id> nodes carry registration_id; bare ids are accepted too. */
+function nodeRegistration(id:string){const n=visible.value?.nodes.find(x=>x.id===id)??snapshot.value?.nodes.find(x=>x.id===id);return n?.registration_id??(id.startsWith('kafka:')?id.slice(6):id)}
+const drawerRow=computed(()=>{if(!selectedNode.value||!catalog.value.length)return undefined;const byNode=selectedNode.value.startsWith('catalog:')?catalog.value.find(r=>`catalog:${r.id}`===selectedNode.value):undefined;return byNode??catalogFor(catalog.value,{registrationId:nodeRegistration(selectedNode.value),addresses:endpointPanel.value?.addresses})})
 const manual=ref<Record<string,{id:string;ok:boolean}>>({}),manualOpen=ref('')
 watch(detail,d=>{manual.value=d?Object.fromEntries([d.source,d.target].map(m=>[m.alias,{id:'',ok:false}])):{}},{immediate:true})
 function addressMismatch(m:MappingT){const id=manual.value[m.alias]?.id,a=mm2Addresses(m);return !!id&&a.length>0&&!addressesOverlap(a,registrationAddresses(id))}

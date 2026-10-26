@@ -35,9 +35,11 @@ const row=(over:Record<string,unknown>)=>({id:'auto:x',source:'auto',aliases:['k
 describe('cluster drawer on the topology page',()=>{
  it('clicking a registered cluster node opens the drawer from the catalog',async()=>{
   const regs=labRegistrations()
-  const {w}=setup(registeredLab(),regs,'relations',[row({id:'auto:k1',source:'merged',aliases:['k1'],registration_id:regs[0]!.id,display_name:regs[0]!.display_name,access:'readable',credential_source:'MM2 配置（只读）'})]);await settle()
-  canvas(w).vm.$emit('selectNode',regs[0]!.id);await settle()
+  const {w}=setup(registeredLab(),regs,'relations',[row({id:'auto:k1',source:'merged',aliases:['k1'],registration_id:regs[0]!.id,display_name:regs[0]!.display_name,room:'bj',environment:'prod',access:'readable',credential_source:'MM2 配置（只读）'})]);await settle()
+  // Registered nodes are drawn as kafka:<registration id> (real canvas id), not the bare id.
+  canvas(w).vm.$emit('selectNode','kafka:'+regs[0]!.id);await settle()
   const d=w.get('[data-cluster-drawer]').text()
+  expect(d).toContain('bj')
   expect(d).toContain('自动发现 · 已合并登记信息');expect(d).toContain('凭据来源：MM2 配置（只读）');expect(d).toContain('✓ 可读')
   await w.get('[data-close-drawer]').trigger('click');await settle()
   expect(w.find('[data-cluster-drawer]').exists()).toBe(false)
@@ -58,6 +60,13 @@ describe('cluster drawer on the topology page',()=>{
   canvas(w).vm.$emit('selectNode','catalog:auto:k9');await settle()
   expect(w.get('[data-cluster-drawer]').text()).toContain('k9')
   expect(w.get('.focus-controls strong').text()).toBe('k9')
+  w.unmount()
+ })
+ it('MM2 view: clicking a merged registered endpoint opens the drawer too',async()=>{
+  const regs=labRegistrations()
+  const {w}=setup(registeredLab(),regs,'mm2',[row({id:'auto:k1',source:'merged',aliases:['k1'],registration_id:regs[0]!.id,access:'readable'})]);await settle()
+  canvas(w).vm.$emit('selectNode','kafka:'+regs[0]!.id);await settle()
+  expect(w.find('[data-cluster-drawer]').exists()).toBe(true)
   w.unmount()
  })
  it('without catalog rows the old behaviour stays',async()=>{
