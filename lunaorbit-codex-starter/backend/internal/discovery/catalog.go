@@ -50,6 +50,8 @@ type CatalogEndpoint struct {
 	AccessReason     string     `json:"access_reason,omitempty"`
 	CheckedAt        *time.Time `json:"checked_at,omitempty"`
 	CredentialSource string     `json:"credential_source,omitempty"`
+	// LineageID is the cluster id to use for Topic lineage queries (registration or endpoint id).
+	LineageID string `json:"lineage_id"`
 	// ReadVia tells readers which path to use: the auto endpoint, or the registration fallback.
 	ReadVia string `json:"read_via"`
 }
@@ -187,6 +189,10 @@ func BuildCatalog(eps []AutoEndpoint, regs []Registration, probes map[string]Pro
 			}
 			sort.Strings(row.Ambiguous)
 		}
+		row.LineageID = LineageEndpointID(row.Addresses)
+		if row.RegistrationID != "" {
+			row.LineageID = row.RegistrationID
+		}
 		row.ReadVia = "auto"
 		if row.Access != AccessReadable && row.RegistrationID != "" {
 			row.ReadVia = "registration"
@@ -199,7 +205,7 @@ func BuildCatalog(eps []AutoEndpoint, regs []Registration, probes map[string]Pro
 		if !r.Enabled || used[r.ID] {
 			continue
 		}
-		out = append(out, CatalogEndpoint{ID: "reg:" + r.ID, Source: SourceManual, Aliases: []string{}, Members: []string{}, Addresses: sortedKeys(addrSet(r.BootstrapServers)), Resolved: []string{}, ClusterID: r.DiscoveredClusterID, RegistrationID: r.ID, DisplayName: r.DisplayName, Room: r.Room, Environment: r.Environment, Access: "registered", ReadVia: "registration"})
+		out = append(out, CatalogEndpoint{ID: "reg:" + r.ID, Source: SourceManual, Aliases: []string{}, Members: []string{}, Addresses: sortedKeys(addrSet(r.BootstrapServers)), Resolved: []string{}, ClusterID: r.DiscoveredClusterID, RegistrationID: r.ID, DisplayName: r.DisplayName, Room: r.Room, Environment: r.Environment, Access: "registered", ReadVia: "registration", LineageID: r.ID})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -220,4 +226,20 @@ func rank(state string) int {
 		return 1
 	}
 	return 0
+}
+
+// LineageEndpointID mirrors lineage.EndpointID: the smallest bootstrap address names the cluster.
+func LineageEndpointID(addresses []string) string {
+	best := ""
+	for _, a := range addresses {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a != "" && (best == "" || a < best) {
+			best = a
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(best))
+	return "endpoint-" + hex.EncodeToString(sum[:8])
 }

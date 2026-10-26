@@ -2,7 +2,9 @@ package lineage
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"lunaorbit/backend/internal/discovery"
@@ -10,6 +12,7 @@ import (
 	"lunaorbit/backend/internal/kafkaops"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,18 +26,20 @@ type Query struct {
 	Direction        string
 }
 type Node struct {
-	ID            string    `json:"id"`
-	Kind          string    `json:"kind"`
-	Label         string    `json:"label"`
-	ClusterID     string    `json:"cluster_id,omitempty"`
-	ClusterName   string    `json:"cluster_name,omitempty"`
-	Topic         string    `json:"topic,omitempty"`
-	Group         string    `json:"group,omitempty"`
-	Location      string    `json:"location,omitempty"`
-	Owner         string    `json:"owner,omitempty"`
-	ApplicationID string    `json:"application_id,omitempty"`
-	LinkID        string    `json:"link_id,omitempty"`
-	Exists        *bool     `json:"exists"`
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Label         string `json:"label"`
+	ClusterID     string `json:"cluster_id,omitempty"`
+	ClusterName   string `json:"cluster_name,omitempty"`
+	Topic         string `json:"topic,omitempty"`
+	Group         string `json:"group,omitempty"`
+	Location      string `json:"location,omitempty"`
+	Owner         string `json:"owner,omitempty"`
+	ApplicationID string `json:"application_id,omitempty"`
+	LinkID        string `json:"link_id,omitempty"`
+	Exists        *bool  `json:"exists"`
+	// ExistenceNote explains an unknown existence for endpoints that cannot be read.
+	ExistenceNote string    `json:"existence_note,omitempty"`
 	Evidence      string    `json:"evidence"`
 	ObservedAt    time.Time `json:"observed_at"`
 }
@@ -125,8 +130,25 @@ func (s *Service) Trace(ctx context.Context, q Query) (Graph, error) {
 	if e != nil {
 		return g, e
 	}
+	snapshots, snapErr := s.p.Snapshots(ctx)
+	// MM2 ends that are not confirmed to a registration but carry addresses become
+	// endpoint pseudo-clusters, so the chain continues through them (existence unknown).
+	endpointNames := map[string]string{}
+	for _, snap := range snapshots {
+		for _, l := range snap.Links {
+			for _, m := range []discovery.Mapping{l.Source, l.Target} {
+				if id, name, ok := endpointOf(m, clusters); ok && strings.HasPrefix(id, "endpoint-") {
+					if _, seen := endpointNames[id]; !seen {
+						endpointNames[id] = name
+					}
+				}
+			}
+		}
+	}
 	if _, ok := clusters[q.ClusterID]; !ok {
-		return g, ErrNotFound
+		if _, ok := endpointNames[q.ClusterID]; !ok {
+			return g, ErrNotFound
+		}
 	}
 	issue := func(code, msg, c, l string) {
 		if len(g.Issues) < 200 {
@@ -187,6 +209,9 @@ func (s *Service) Trace(ctx context.Context, q Query) (Graph, error) {
 			issue("CLUSTERS_TRUNCATED", "最多读取 16 个集群，其他集群已截断", c, "")
 			return false
 		}
+		if name, ok := endpointNames[c]; ok {
+			return addNode(Node{ID: topicID(c, t), Kind: "topic", Label: t, ClusterID: c, ClusterName: name, Topic: t, Evidence: "configured", ExistenceNote: "Topic 是否存在无法确认"})
+		}
 		v := load(c)
 		n := Node{ID: topicID(c, t), Kind: "topic", Label: t, ClusterID: c, ClusterName: clusters[c], Topic: t, Evidence: "unknown", ObservedAt: v.at}
 		if v.topics[t] {
@@ -215,13 +240,14 @@ func (s *Service) Trace(ctx context.Context, q Query) (Graph, error) {
 		edges[e.ID] = true
 		g.Edges = append(g.Edges, e)
 	}
-	root := load(q.ClusterID)
-	if root.known && !root.topics[q.Topic] {
-		return g, ErrNotFound
+	if _, endpoint := endpointNames[q.ClusterID]; !endpoint {
+		root := load(q.ClusterID)
+		if root.known && !root.topics[q.Topic] {
+			return g, ErrNotFound
+		}
 	}
 	addTopic(q.ClusterID, q.Topic)
-	snapshots, err := s.p.Snapshots(ctx)
-	if err != nil {
+	if snapErr != nil {
 		issue("DISCOVERY_UNAVAILABLE", "部分发现快照不可用", "", "")
 	}
 	links := []scopedLink{}
@@ -273,16 +299,20 @@ traverse:
 			}
 			linkVisits++
 			l := sl.link
-			forward := l.Source.RegistrationID == cur.c && q.Direction != "upstream"
-			backward := l.Target.RegistrationID == cur.c && q.Direction != "downstream"
+			srcC, _, srcOK := endpointOf(l.Source, clusters)
+			dstC, _, dstOK := endpointOf(l.Target, clusters)
+			forward := srcOK && dstOK && srcC == cur.c && q.Direction != "upstream"
+			backward := srcOK && dstOK && dstC == cur.c && q.Direction != "downstream"
 			if !forward && !backward {
+				// The far end has no address at all: the only place the chain stops, with the reason.
+				if srcOK && srcC == cur.c && !dstOK && q.Direction != "upstream" && l.Enabled {
+					issue("ENDPOINT_UNRESOLVABLE", "MM2 配置中 "+l.Target.Alias+" 的地址无法解析，链路在此中断", cur.c, l.ID)
+				} else if dstOK && dstC == cur.c && !srcOK && q.Direction != "downstream" && l.Enabled {
+					issue("ENDPOINT_UNRESOLVABLE", "MM2 配置中 "+l.Source.Alias+" 的地址无法解析，链路在此中断", cur.c, l.ID)
+				}
 				continue
 			}
 			if !l.Enabled {
-				continue
-			}
-			if l.Source.Status != "confirmed" || l.Target.Status != "confirmed" || clusters[l.Source.RegistrationID] == "" || clusters[l.Target.RegistrationID] == "" {
-				issue("UNRESOLVED_MAPPING", "同步链路的集群映射尚未确认", cur.c, l.ID)
 				continue
 			}
 			if !l.SemanticsKnown || l.Stale || sl.stale {
@@ -300,7 +330,7 @@ traverse:
 				continue
 			}
 			sourceTopic := cur.t
-			dest := l.Target.RegistrationID
+			dest := dstC
 			targetTopic := ""
 			policy := l.Policy
 			identity := policy == "org.apache.kafka.connect.mirror.IdentityReplicationPolicy"
@@ -314,7 +344,7 @@ traverse:
 				continue
 			}
 			if backward {
-				dest = l.Source.RegistrationID
+				dest = srcC
 				if standard {
 					prefix := l.SourceAlias + l.Separator
 					if !strings.HasPrefix(cur.t, prefix) {
@@ -384,7 +414,7 @@ traverse:
 			if !addNode(Node{ID: task, Kind: "mm2", Label: l.WorkloadName, LinkID: l.ID, Evidence: "configured", ObservedAt: l.ObservedAt}) {
 				continue
 			}
-			srcID, tgtID := topicID(l.Source.RegistrationID, sourceTopic), topicID(l.Target.RegistrationID, targetTopic)
+			srcID, tgtID := topicID(srcC, sourceTopic), topicID(dstC, targetTopic)
 			for _, pair := range [][2]string{{srcID, task}, {task, tgtID}} {
 				addEdge(Edge{Source: pair[0], Target: pair[1], Kind: "replicates_to", Evidence: "configured", ObservedAt: l.ObservedAt, ScopeID: sl.scope, LinkID: l.ID, Policy: policy, Rule: l.TopicsRaw})
 			}
@@ -395,7 +425,7 @@ traverse:
 				}
 				if !identityAdj[srcID][tgtID] {
 					if directedReachable(identityAdj, tgtID, srcID) {
-						issue("REPLICATION_CYCLE", "同名 Topic 的配置同步方向形成环路，请检查 MM2 配置", l.Target.RegistrationID, l.ID)
+						issue("REPLICATION_CYCLE", "同名 Topic 的配置同步方向形成环路，请检查 MM2 配置", dstC, l.ID)
 					}
 					identityAdj[srcID][tgtID] = true
 				}
@@ -466,4 +496,43 @@ func directedReachable(adj map[string]map[string]bool, from, to string) bool {
 		}
 	}
 	return false
+}
+
+// EndpointID names an MM2 end that is not confirmed to a registration by its smallest
+// bootstrap address, so every MM2 that points at the same cluster yields the same id.
+func EndpointID(addresses []string) string {
+	best := ""
+	for _, a := range addresses {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a != "" && (best == "" || a < best) {
+			best = a
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(best))
+	return "endpoint-" + hex.EncodeToString(sum[:8])
+}
+
+// endpointOf returns the traversal node for one MM2 end: the registration when confirmed,
+// otherwise an endpoint pseudo-cluster named "alias · first-address" (ok=false only when
+// the end has no address at all).
+func endpointOf(m discovery.Mapping, clusters map[string]string) (string, string, bool) {
+	if m.Status == "confirmed" && clusters[m.RegistrationID] != "" {
+		return m.RegistrationID, clusters[m.RegistrationID], true
+	}
+	id := EndpointID(m.BootstrapAddresses)
+	if id == "" {
+		return "", "", false
+	}
+	sorted := append([]string{}, m.BootstrapAddresses...)
+	sort.Strings(sorted)
+	name := m.Alias + " · " + sorted[0]
+	if len(sorted) > 2 {
+		name += " 等 " + strconv.Itoa(len(sorted)) + " 个"
+	} else if len(sorted) == 2 {
+		name += ", " + sorted[1]
+	}
+	return id, name, true
 }
