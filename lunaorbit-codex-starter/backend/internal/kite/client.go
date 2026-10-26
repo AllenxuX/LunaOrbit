@@ -42,11 +42,9 @@ func origin(raw string) (string, bool) {
 	if err != nil || u.User != nil || u.Opaque != "" || u.Host == "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.RawPath != "" {
 		return "", false
 	}
-	if u.Scheme != "https" {
-		ip := net.ParseIP(u.Hostname())
-		if u.Scheme != "http" || ip == nil || !ip.IsLoopback() {
-			return "", false
-		}
+	// http and https are both allowed so in-cluster service names work (read-only Kite).
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", false
 	}
 	if u.Hostname() == "" {
 		return "", false

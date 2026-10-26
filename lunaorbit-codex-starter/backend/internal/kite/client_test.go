@@ -210,3 +210,18 @@ func TestTimeoutCancellationAndBodyLimit(t *testing.T) {
 		t.Fatal("oversized body accepted")
 	}
 }
+
+func TestInClusterHTTPBaseURLIsAccepted(t *testing.T) {
+	for _, base := range []string{"http://kite.kite-system.svc.cluster.local:8080", "http://10.96.0.10:8080", "https://kite.lluna.cn", "http://127.0.0.1:28080"} {
+		c, err := New(Config{BaseURL: base, AllowedOrigins: []string{base}, APIKey: "synthetic-key", Timeout: time.Second})
+		if err != nil {
+			t.Fatalf("%s rejected: %v", base, err)
+		}
+		c.Close()
+	}
+	for _, base := range []string{"http://u:p@kite.kite-system.svc:8080", "ftp://kite.kite-system.svc", "http://kite.kite-system.svc:8080/api?x=1", "http://"} {
+		if _, err := New(Config{BaseURL: base, AllowedOrigins: []string{base}, APIKey: "synthetic-key", Timeout: time.Second}); CodeOf(err) != "INVALID_CONFIG" {
+			t.Fatalf("%s must be rejected", base)
+		}
+	}
+}

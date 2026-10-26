@@ -22,3 +22,5 @@ BaseURL 仅允许 origin、无账号/路径/query/fragment；必须精确匹配�
 3. [x] 实现 Mock CLI 与显式真实模式；不打印 env/URL/资源名/Key/原始响应。
 4. [x] gofmt、go test ./...、go vet ./...、构建、CLI smoke；前端未变更但重跑既有验收命令。
 5. [x] 独立只读复核并处理问题；更新 Phase 01 ROADMAP 与开发日志，保留真实格式未验证说明。
+
+> 2026-10-26 LUNA-62 补充：Kite BaseURL 不再限制 HTTPS/回环，允许 http 与 https 及集群内域名；仍禁止账号、路径、query、fragment 与重定向，Key 原样放 Authorization、不记录不回显。

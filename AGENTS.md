@@ -17,3 +17,5 @@
 ## 认证 B 例外条款
 
 例外（经用户书面批准）：平台可从 MM2 ConfigMap 的 sasl.jaas.config 解析 Kafka 凭据，仅用于只读元数据采集。凭据只在采集进程内存中存在，不写入数据库、发现快照、日志或任何接口响应；不得在页面、日志、导出中展示用户名、密码或 jaas 原文。采集客户端只允许只读请求类型，写路由不注册。该能力由独立开关 KAFKA_MM2_CREDENTIALS 控制，代码默认关闭，部署时显式开启。开启后页面显示"凭据来源：MM2 配置（只读）"。
+
+- Kite 地址：`KITE_BASE_URL` 允许 http/https 与集群内域名（不再要求 https 或回环）；仍禁止用户信息/路径/query，Key 原样放 Authorization、不记录不回显，Kite 只读。

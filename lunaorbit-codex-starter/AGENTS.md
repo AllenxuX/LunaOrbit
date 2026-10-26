@@ -49,3 +49,5 @@
 18. 每集群连接先验证 seed broker，再验证 `advertised.listeners` 发现的 Broker 可达性；错误须区分网络、TLS、认证、授权及 API 不支持。
 19. 所有 Kafka 集群注册必须受到 SSRF/任意内网探测防护、用户资源范围限制、客户端池上限和探测速率限制。
 20. `docs/KAFKA_CLUSTER_MANAGEMENT.md` 是历史 v2 方案，已被自动发现取代；其中 SSRF 与探测限制条款仍然有效。
+
+- Kite 地址：`KITE_BASE_URL` 允许 http/https 与集群内域名（不再要求 https 或回环）；仍禁止用户信息/路径/query，Key 原样放 Authorization、不记录不回显，Kite 只读。

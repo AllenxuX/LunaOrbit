@@ -37,3 +37,8 @@
 - TLS 私钥、SASL 密码、Kite API Key 必须采用服务端密钥管理；前端只显示 `configured: true` 和凭据版本/轮换日期，不回传原值。
 - Kafka 连接测试不得泄漏失败的凭据字符串；日志、Trace、错误详情、审计、SQL 慢日志全部需要脱敏。
 - 实际 Kafka Topic 管理和 ACL 操作必须分别受 Kafka 授权器和 LunaOrbit 平台 RBAC 双重限制。
+
+## Kite 地址（LUNA-62）
+- `KITE_BASE_URL` 允许 `http` 和 `https`，主机不限回环，可直接用集群内域名（例如 `http://kite.kite-system.svc.cluster.local:8080`）。
+- 仍要求合法 origin：禁止用户信息、路径、query、fragment，禁止跟随重定向，需与允许 origin 精确匹配。
+- Key 原样放 `Authorization` 头，不写日志、不回显；Kite 只读，不新增写能力。
