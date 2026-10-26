@@ -277,3 +277,23 @@ describe('unreadable endpoints in a lineage',()=>{
   expect(rootUnknown.rootMissing).toBe(false)
  })
 })
+
+describe('downstream from the last cluster',()=>{
+ const rootAt=(c:string):Lineage=>({root_id:`topic:${c}:orders`,observed_at:'',depth:2,truncated:false,issues:[],nodes:[T(c)],edges:[]})
+ const upstreamOnly=[rule({id:'L1',source:{registration_id:'k8',status:'confirmed'},target:{registration_id:'k9',status:'confirmed'}})]
+ it('says the cluster has no downstream configuration and does not deny upstream relations',()=>{
+  const r=classifyLineage({cluster:'k9',topic:'orders',depth:2,direction:'downstream',snapshotStale:false,result:rootAt('k9'),links:upstreamOnly})
+  expect(r.map(x=>x.title)).toEqual(['没有下游同步配置'])
+  expect(r[0]!.facts.join('')).toContain('该集群没有下游同步配置')
+  expect(r[0]!.facts.join('')).toContain('上游')
+  expect(JSON.stringify(r)).not.toContain('未被任何同步规则选中')
+ })
+ it('upstream from the first cluster says the same for upstream',()=>{
+  const r=classifyLineage({cluster:'k8',topic:'orders',depth:2,direction:'upstream',snapshotStale:false,result:rootAt('k8'),links:upstreamOnly})
+  expect(r[0]!.facts.join('')).toContain('该集群没有上游同步配置')
+ })
+ it('keeps the original sentence when no rule in any direction selects the topic',()=>{
+  const r=classifyLineage({cluster:'k9',topic:'orders',depth:2,direction:'downstream',snapshotStale:false,result:rootAt('k9'),links:[rule({id:'L1',topics_raw:'payments',source:{registration_id:'k9',status:'confirmed'},target:{registration_id:'k10',status:'confirmed'}})]})
+  expect(r[0]!.facts).toEqual(['该 Topic 未被任何同步规则选中，因此没有跨集群链路。'])
+ })
+})

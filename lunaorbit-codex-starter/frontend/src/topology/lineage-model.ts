@@ -11,7 +11,7 @@ export interface RuleLink {
 }
 export interface LineageView {nodes:LineageNode[];edges:(LineageEdge&{label?:string;linkId?:string;mm2Id?:string})[]}
 export interface UnparsedGroup {task:string;where:string;impact:string;to:string}
-export interface Reason {kind:'unreadable'|'no_rule'|'excluded'|'internal'|'untrusted'|'unparsed'|'budget'|'unmapped'|'unregistered';title:string;facts:string[];actions:{label:string;to?:string;action?:'refresh'|'deeper'|'retry'}[];groups?:UnparsedGroup[];more?:number}
+export interface Reason {kind:'unreadable'|'no_rule'|'excluded'|'internal'|'untrusted'|'unparsed'|'budget'|'unmapped'|'unregistered'|'no_direction';title:string;facts:string[];actions:{label:string;to?:string;action?:'refresh'|'deeper'|'retry'}[];groups?:UnparsedGroup[];more?:number}
 export interface Conditions {cluster:string;topic:string;direction:Direction;depth:number}
 
 const policyName=(p?:string)=>p?.endsWith('IdentityReplicationPolicy')?'Identity':p?.endsWith('DefaultReplicationPolicy')?'Default':p?p.split('.').at(-1)!:'策略未知'
@@ -118,8 +118,13 @@ export function classifyLineage(input:Conditions&{result:Lineage;links:RuleLink[
  if(internalHit&&!replication.length)reasons.push({kind:'internal',title:'MM2/Kafka 内部 Topic',facts:['这是 MM2/Kafka 内部 Topic，不参与业务同步，通常无需追踪。'],actions:[{label:'重新选择 Topic',action:'retry'}]})
  else if(!replication.length&&!reasons.some(r=>r.kind==='unreadable'||r.kind==='untrusted'||r.kind==='unparsed'||r.kind==='unmapped')){
   const relevant=links.filter(l=>l.enabled&&((direction!=='upstream'&&l.source.registration_id===cluster)||(direction!=='downstream'&&l.target.registration_id===cluster)))
+  // One-way query from an end of the chain: say there is no configuration in that direction,
+  // and never deny relations that exist the other way.
+  const other=direction==='downstream'?links.filter(l=>l.enabled&&l.target.registration_id===cluster):direction==='upstream'?links.filter(l=>l.enabled&&l.source.registration_id===cluster):[]
+  const otherSelects=other.some(l=>matchesRule(l.topics_raw,topic)===true)
   const excluded=relevant.filter(l=>matchesRule(l.topics_raw,topic)===true&&!!l.topics_exclude_raw&&matchesRule(l.topics_exclude_raw,topic)===true)
-  if(excluded.length)reasons.push({kind:'excluded',title:'Topic 被排除规则排除',facts:excluded.map(l=>`该 Topic 被 ${l.workload_name} 的排除规则排除：${l.topics_exclude_raw}。`),actions:excluded.map(l=>({label:`查看 ${l.workload_name}`,to:linkPath(l.id,links)}))})
+  if(direction!=='both'&&!relevant.length&&(otherSelects||other.length)){const side=direction==='downstream'?'下游':'上游',back=direction==='downstream'?'上游':'下游';reasons.push({kind:'no_direction',title:`没有${side}同步配置`,facts:[`该集群没有${side}同步配置。${otherSelects?`${back}同步关系不受影响，可切换为“${back}”或“上下游”查看。`:''}`],actions:[{label:'去 MM2 拓扑查看各任务的 Topic 规则',to:MM2_RULES}]})}
+  else if(excluded.length)reasons.push({kind:'excluded',title:'Topic 被排除规则排除',facts:excluded.map(l=>`该 Topic 被 ${l.workload_name} 的排除规则排除：${l.topics_exclude_raw}。`),actions:excluded.map(l=>({label:`查看 ${l.workload_name}`,to:linkPath(l.id,links)}))})
   else if(!relevant.some(l=>matchesRule(l.topics_raw,topic)===true))reasons.push({kind:'no_rule',title:'未被同步规则选中',facts:['该 Topic 未被任何同步规则选中，因此没有跨集群链路。'],actions:[{label:'去 MM2 拓扑查看各任务的 Topic 规则',to:MM2_RULES}]})
  }
  return reasons
