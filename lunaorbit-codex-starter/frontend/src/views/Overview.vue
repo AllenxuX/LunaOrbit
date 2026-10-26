@@ -64,7 +64,7 @@ onUnmounted(() => { disposed = true; ++epoch })
       <div class="overview-actions"><span v-if="refreshedAt" class="helper-text">更新于 {{ refreshedAt }}</span><button data-refresh :disabled="loading" @click="refresh"><AppIcon name="refresh" :size="15" />{{ loading ? '刷新中…' : '刷新' }}</button></div>
     </header>
     <div class="inventory-cards">
-      <article class="inventory-card"><div class="inventory-card-title"><span>已添加集群</span><AppIcon name="database" /></div><strong data-registered-total>{{ registeredTotal ?? '未知' }}</strong><router-link to="/kafka/clusters">管理 Kafka 集群 <AppIcon name="arrow-right" :size="14" /></router-link></article>
+      <article class="inventory-card"><div class="inventory-card-title"><span>已添加集群</span><AppIcon name="database" /></div><strong data-registered-total>{{ registeredTotal ?? '未知' }}</strong><router-link v-if="!runtime?.information_mode" to="/kafka/clusters">管理 Kafka 集群 <AppIcon name="arrow-right" :size="14" /></router-link></article>
       <article class="inventory-card"><div class="inventory-card-title"><span>{{ enabledLabel }}</span><AppIcon name="check" /></div><strong data-enabled-total>{{ enabledTotal ?? '未知' }}</strong></article>
       <article class="inventory-card"><div class="inventory-card-title"><span>发现同步关系</span><AppIcon name="topology" /></div><strong data-link-total>{{ linkTotal ?? '未知' }}</strong><router-link to="/topology">查看发现数据 <AppIcon name="arrow-right" :size="14" /></router-link></article>
       <article class="inventory-card"><div class="inventory-card-title"><span>发现范围</span><AppIcon name="shield" /></div><strong>{{ scopeTotal ?? '未知' }}</strong></article>

@@ -22,16 +22,16 @@ describe('unregistered endpoints',()=>{
  it('summarises counts and the banner sentence',()=>{
   const sum=unregisteredSummary(registeredLab(['k9']),labRegistrations(['k9']))!
   expect(sum).toMatchObject({registered:8,unregistered:1,aliases:['k9']})
-  expect(sum.banner).toBe('1 条链路的对端 k9 尚未登记，相关关系无法判断')
+  expect(sum.banner).toBe('1 条链路的对端 k9 为自动发现端点，尚未合并登记信息；点击节点查看访问状态')
   const two=unregisteredSummary(registeredLab(['k5','k9']),labRegistrations(['k5','k9']))!
-  expect(two.banner).toBe('3 条链路的对端 k5、k9 尚未登记，相关关系无法判断')
+  expect(two.banner).toBe('3 条链路的对端 k5、k9 为自动发现端点，尚未合并登记信息；点击节点查看访问状态')
   expect(two).toMatchObject({registered:7,unregistered:2})
  })
  it('marks unregistered nodes and manually bound endpoints that still need review',()=>{
   const s=registeredLab(['k9'])
-  expect(endpointMarks(s,labRegistrations(['k9']),new Set())).toEqual({'alias:k9':'未登记'})
+  expect(endpointMarks(s,labRegistrations(['k9']),new Set())).toEqual({'alias:k9':'自动发现'})
   const reviewed=new Set([manualReviewKey('lab','uid-L10','k8')])
-  expect(endpointMarks(s,labRegistrations(['k9']),reviewed)).toEqual({'alias:k9':'未登记','kafka:k8':'人工绑定 · 需复核'})
+  expect(endpointMarks(s,labRegistrations(['k9']),reviewed)).toEqual({'alias:k9':'自动发现','kafka:k8':'人工绑定 · 需复核'})
   expect(endpointMarks(registeredLab(),labRegistrations(),new Set())).toEqual({})
  })
  it('builds a registration link prefilled with the alias and only host:port addresses',()=>{

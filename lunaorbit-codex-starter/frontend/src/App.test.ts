@@ -13,6 +13,8 @@ it('shows shared information navigation without an identity header or governance
   const wrapper = mount(App, { global: { plugins: [router] } })
   await flushPromises()
   expect(wrapper.find('a[href="/applications"]').exists()).toBe(true)
+  expect(wrapper.find('a[href="/kafka/clusters"]').exists()).toBe(false)
+  expect(wrapper.find('a[href="/topic-lineage"]').exists()).toBe(true)
   for (const path of ['/security', '/access-control', '/changes']) expect(wrapper.find(`a[href="${path}"]`).exists()).toBe(false)
   expect(wrapper.find('.account-link').exists()).toBe(false)
   wrapper.unmount()

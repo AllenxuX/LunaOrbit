@@ -67,12 +67,12 @@ describe('six empty / incomplete reasons',()=>{
  it('an unregistered next hop breaks the chain at the last judgeable cluster with a register entry',()=>{
   const r=classifyLineage({...base,result:{...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'a',link_id:'L1'}]},links:[rule({target:{alias:'k9',status:'unknown',candidate_ids:[]}})]})
   expect(r.map(x=>x.kind)).toEqual(['unregistered'])
-  expect(r[0]).toMatchObject({title:'1 处因未登记中断',facts:['下一跳 k9 未登记，链路在此中断'],actions:[{label:'去登记 k9',to:'/kafka/clusters?register=1&name=k9'}]})
+  expect(r[0]).toMatchObject({title:'1 处为自动发现端点',facts:['下一跳 k9 为自动发现端点，尚未合并登记信息'],actions:[]})
   expect(unregisteredBreaks({...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'a',link_id:'L1'}]},[rule({target:{alias:'k9',status:'unknown',candidate_ids:[]}})])).toEqual([{clusterId:'a',alias:'k9',linkId:'L1',addresses:[]}])
  })
  it('the register entry carries the MM2 address of the unregistered hop',()=>{
   const r=classifyLineage({...base,result:{...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'a',link_id:'L1'}]},links:[rule({target:{alias:'k9',status:'unknown',candidate_ids:[],bootstrap_addresses:['k9-kafka.svc:9092']}})]})
-  expect(r[0]!.actions[0]!.to).toBe('/kafka/clusters?register=1&name=k9&bootstrap=k9-kafka.svc%3A9092')
+  expect(r[0]!.actions).toEqual([])
  })
  it('upstream: an unregistered source breaks the chain at the target cluster',()=>{
   const r=unregisteredBreaks({...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'b',link_id:'L1'}]},[rule({source:{alias:'k0',status:'unknown',candidate_ids:null}})])

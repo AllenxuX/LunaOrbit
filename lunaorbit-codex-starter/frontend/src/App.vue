@@ -16,7 +16,7 @@ const allNavigation = [
   { to: '/access-control', label: '平台访问控制', icon: 'shield', group: '' },
   { to: '/changes', label: '变更管理', icon: 'changes', group: '' },
 ]
-const navigation = computed(() => !runtime.value ? allNavigation.slice(0, 3) : runtime.value.information_mode ? [...allNavigation.slice(0, 3), { to: '/topic-lineage', label: 'Topic 链路', icon: 'topology', group: '' }, { to: '/applications', label: '应用信息', icon: 'database', group: '' }] : allNavigation)
+const navigation = computed(() => !runtime.value ? allNavigation.slice(0, 3) : runtime.value.information_mode ? [allNavigation[0]!, allNavigation[2]!, { to: '/topic-lineage', label: 'Topic 链路', icon: 'topology', group: '' }, { to: '/applications', label: '应用信息', icon: 'database', group: '' }] : allNavigation)
 function active(path: string) {
   if (path === '/security') return route.path === '/security' || route.path.endsWith('/security')
   if (path === '/kafka/clusters') return route.path.startsWith(path) && !route.path.endsWith('/security')

@@ -1,5 +1,4 @@
 import type { Direction, Lineage, LineageEdge, LineageNode } from '../api/topic-lineage'
-import { registerHref } from './unregistered'
 
 /** One end of a rule's mapping; alias/candidates come from the discovery snapshot. */
 export interface RuleEnd {registration_id?:string;status:string;alias?:string;candidate_ids?:string[]|null;bootstrap_addresses?:string[]|null}
@@ -109,7 +108,7 @@ export function classifyLineage(input:Conditions&{result:Lineage;links:RuleLink[
  }
  const internalHit=isInternalTopic(topic)||codes.has('HEARTBEAT_POLICY_UNKNOWN')
  const breaks=unregisteredBreaks(result,links),broken=new Set(breaks.map(b=>b.linkId))
- if(breaks.length)reasons.push({kind:'unregistered',title:`${breaks.length} 处因未登记中断`,facts:breaks.map(b=>`下一跳 ${b.alias} 未登记，链路在此中断`),actions:[...new Set(breaks.map(b=>b.alias))].map(alias=>({label:`去登记 ${alias}`,to:registerHref(alias,breaks.find(b=>b.alias===alias)!.addresses)}))})
+ if(breaks.length)reasons.push({kind:'unregistered',title:`${breaks.length} 处为自动发现端点`,facts:breaks.map(b=>`下一跳 ${b.alias} 为自动发现端点，尚未合并登记信息`),actions:[]})
  const unmapped=result.issues.filter(i=>i.code==='UNRESOLVED_MAPPING'&&!broken.has(i.link_id??''))
  if(unmapped.length)reasons.push({kind:'unmapped',title:'集群映射未确认',facts:[...new Set(unmapped.map(i=>{const l=links.find(x=>x.id===i.link_id);return l?`MM2 ${l.workload_name} 的集群别名尚未确认对应哪个 Kafka 集群，已保留已知路径。`:i.message}))],actions:[{label:'查看集群映射',to:'/topology?view=mm2'},...unmapped.flatMap(i=>i.link_id?[{label:'查看 MM2 配置',to:linkPath(i.link_id,links)}]:[]).slice(0,1)]})
  // Depth: a boundary node at the maximum hop that still has a matching enabled rule onwards.

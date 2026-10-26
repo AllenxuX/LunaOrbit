@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { registerHref, sanitizeAddress, type EndpointState } from '../topology/unregistered'
+import { sanitizeAddress, type EndpointState } from '../topology/unregistered'
 
 const props=withDefaults(defineProps<{endpoint:Pick<EndpointState,'alias'|'state'|'candidateIds'>;addresses:string[];canManual?:boolean;canView?:boolean}>(),{canManual:true,canView:true})
 const emit=defineEmits<{manual:[];view:[]}>()
@@ -15,7 +15,7 @@ const reason=computed(()=>props.endpoint.state==='unregistered'?'LunaOrbit 中�
 
 <template>
   <div class="endpoint-explain" data-endpoint-explain>
-    <h3>{{ endpoint.alias }} <span class="endpoint-tag" :class="{unregistered:endpoint.state==='unregistered'}">{{ endpoint.state==='unregistered'?'未登记':'待确认' }}</span></h3>
+    <h3>{{ endpoint.alias }} <span class="endpoint-tag" :class="{unregistered:endpoint.state==='unregistered'}">{{ endpoint.state==='unregistered'?'自动发现':'待确认' }}</span></h3>
     <dl>
       <dt>MM2 里的地址</dt><dd data-endpoint-address>{{ shown.length?shown.join(', '):'MM2 配置中未解析出地址' }}</dd>
       <dt>匹配结论</dt><dd data-endpoint-conclusion>{{ conclusion }}</dd>
@@ -23,7 +23,6 @@ const reason=computed(()=>props.endpoint.state==='unregistered'?'LunaOrbit 中�
       <dt>证据类型</dt><dd>配置关系（未验证）</dd>
     </dl>
     <div class="endpoint-actions">
-      <RouterLink :to="registerHref(endpoint.alias,addresses)" data-endpoint-register>登记为新集群</RouterLink>
       <button v-if="canManual" type="button" data-endpoint-manual @click="emit('manual')">从已登记集群中手工指定</button>
       <button v-if="canView" type="button" data-endpoint-view @click="emit('view')">查看该任务配置</button>
     </div>

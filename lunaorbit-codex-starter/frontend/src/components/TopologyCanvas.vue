@@ -79,10 +79,10 @@ function color(edge:PresentationEdge){if(pairs.value)return edge.state==='disabl
 function status(edge:PresentationEdge){return edge.stale?'数据已过期 · 状态未知':edge.state==='disabled'?'同步已禁用':edge.state==='verified'?'链路已验证':edge.state==='unknown'?'状态未知':'链路未验证'}
 function name(id:string){const node=presentation.value.nodes.find(n=>n.id===id);return node?.linkId||id.startsWith('group:')?node?.label??id:nodeIdentity(props.snapshot,id,props.registrations??[])}
 // Unregistered MM2 endpoints: grey, dashed, "未登记" badge + subtitle. Other marks (manual review) only add a badge.
-function unregistered(id:string){return props.endpointMarks?.[id]==='未登记'}
+function unregistered(id:string){return props.endpointMarks?.[id]==='自动发现'}
 function nodeBody(id:string,kind:string){return unregistered(id)?{fill:'#f1f2f4',stroke:'#8a94a6',strokeDasharray:'5 3'}:{fill:kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:kind==='kafka'?'#6386c7':'#8b70ba'}}
 function badge(id:string){const text=props.endpointMarks?.[id]??'';return {text,refX:'100%',refX2:-8,refY:10,textAnchor:'end',textVerticalAnchor:'middle',fontSize:10,fontWeight:600,fill:unregistered(id)?'#4b5565':'#b45309'}}
-function meta(id:string,kind:string,linkId?:string){if(unregistered(id))return '未登记';if(pairs.value)return groupCards.value.get(id)??'';if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
+function meta(id:string,kind:string,linkId?:string){if(unregistered(id))return '自动发现';if(pairs.value)return groupCards.value.get(id)??'';if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
 function overlays(){
  if(!graph)return
  const focus=props.focusNodeId?layered.value?(r=>({nodeIds:[props.focusNodeId!,...r.upstream,...r.downstream],edgeIds:r.edgeIds}))(lineage(presentation.value,props.focusNodeId)):focusPresentation(presentation.value,props.focusNodeId,props.focusDirection):undefined

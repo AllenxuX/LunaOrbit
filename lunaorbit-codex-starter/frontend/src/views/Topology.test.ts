@@ -221,7 +221,7 @@ it('saves the actual arranged positions returned by the canvas and preserves oth
 
 it('MM2 topology counts enabled links, toggles disabled links and shows full lineage counts',async()=>{
  const w=setup(false,false,'',{},'');await flushPromises()
- expect(w.get('.graph-topline').text()).toContain('0 个已登记集群 · 2 个未登记端点 · 1 条 MM2 任务 · 就绪 1/1')
+ expect(w.get('.graph-topline').text()).toContain('0 个已登记集群 · 2 个自动发现端点 · 1 条 MM2 任务 · 就绪 1/1')
  expect(w.text()).toContain('显示禁用任务（0）')
  expect(w.get('.graph-topline').text()).not.toMatch(/×|同步关系/)
  const canvas=w.findComponent({name:'TopologyCanvas'})
@@ -243,7 +243,7 @@ it('both graph tabs use the layered layout: relations draws cluster pairs, MM2 d
  const w=setup(false,false,'',{},'relations');await flushPromises()
  expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('pairs')
  const top=w.get('.graph-topline').text()
- expect(top).toContain('0 个已登记集群 · 2 个未登记端点 · 1 对同步关系（启用）');expect(top).toContain('集群视角')
+ expect(top).toContain('0 个已登记集群 · 2 个自动发现端点 · 1 对同步关系（启用）');expect(top).toContain('集群视角')
  expect(top).not.toMatch(/链路|任务/)
  expect(w.find('.task-panel').exists()).toBe(false);expect(w.find('[data-path-source]').exists()).toBe(false)
  await w.get('[data-mode="mm2"]').trigger('click')

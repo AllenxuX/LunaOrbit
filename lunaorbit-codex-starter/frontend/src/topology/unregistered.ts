@@ -38,7 +38,7 @@ export function unregisteredSummary(snapshot:Snapshot,rows:RegistrationIdentity[
  if(!states.length)return undefined
  const aliases=[...new Set(states.map(s=>s.alias))].sort(),linkIds=[...new Set(states.flatMap(s=>s.linkIds))].sort()
  const kafka=snapshot.nodes.filter(n=>n.kind==='kafka').length
- return {registered:kafka-states.length,unregistered:states.length,aliases,linkIds,banner:`${linkIds.length} 条链路的对端 ${aliases.join('、')} 尚未登记，相关关系无法判断`}
+ return {registered:kafka-states.length,unregistered:states.length,aliases,linkIds,banner:`${linkIds.length} 条链路的对端 ${aliases.join('、')} 为自动发现端点，尚未合并登记信息；点击节点查看访问状态`}
 }
 
 export const manualReviewKey=(scope:string,workloadUid:string,alias:string)=>[scope,workloadUid,alias].join('|')
@@ -51,7 +51,7 @@ export function saveManualReview(keys:Set<string>){try{globalThis.localStorage?.
 /** Node badges: "未登记" for unregistered endpoints, "人工绑定 · 需复核" for endpoints bound through the no-candidate manual flow. */
 export function endpointMarks(snapshot:Snapshot,rows:RegistrationIdentity[],reviewed:Set<string>):Record<string,string>{
  const marks:Record<string,string>={}
- for(const s of endpointStates(snapshot,rows).values())if(s.state==='unregistered')marks[s.nodeId]='未登记'
+ for(const s of endpointStates(snapshot,rows).values())if(s.state==='unregistered')marks[s.nodeId]='自动发现'
  for(const link of snapshot.links)for(const m of [link.source,link.target] as Mapping[]){
   if(m.status!=='confirmed'||!m.registration_id||!reviewed.has(manualReviewKey(snapshot.scope_id,link.workload_uid,m.alias)))continue
   const nodeId='kafka:'+m.registration_id
