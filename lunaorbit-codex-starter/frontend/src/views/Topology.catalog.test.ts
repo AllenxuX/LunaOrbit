@@ -46,8 +46,18 @@ describe('cluster drawer on the topology page',()=>{
  it('an unregistered endpoint node opens the drawer by its MM2 address',async()=>{
   const snap=registeredLab(['k9']);const addr='10.9.0.9:9092';for(const l of snap.links)for(const m of [l.source,l.target])if(m.alias==='k9')m.bootstrap_addresses=[addr]
   const {w}=setup(snap,labRegistrations(['k9']),'relations',[row({addresses:[addr]})]);await settle()
-  canvas(w).vm.$emit('selectNode','alias:k9');await settle()
+  canvas(w).vm.$emit('selectNode','catalog:auto:x');await settle()
   expect(w.get('[data-cluster-drawer]').text()).toContain('不可读 · 凭据未开启或不可读')
+  w.unmount()
+ })
+ it('several MM2 pointing at one auto cluster draw a single node that opens the drawer',async()=>{
+  const snap=registeredLab(['k9']);for(const l of snap.links)for(const m of [l.source,l.target])if(m.alias==='k9')m.bootstrap_addresses=['10.9.0.9:9092']
+  const {w}=setup(snap,labRegistrations(['k9']),'relations',[row({id:'auto:k9',addresses:['10.9.0.9:9092']})]);await settle()
+  const nodes=(canvas(w).props('snapshot') as {nodes:{id:string}[]}).nodes.map(n=>n.id)
+  expect(nodes.filter(id=>id==='catalog:auto:k9').length).toBe(1);expect(nodes.some(id=>id.startsWith('alias:'))).toBe(false)
+  canvas(w).vm.$emit('selectNode','catalog:auto:k9');await settle()
+  expect(w.get('[data-cluster-drawer]').text()).toContain('k9')
+  expect(w.get('.focus-controls strong').text()).toBe('k9')
   w.unmount()
  })
  it('without catalog rows the old behaviour stays',async()=>{

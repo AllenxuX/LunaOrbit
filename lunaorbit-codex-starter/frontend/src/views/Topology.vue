@@ -13,6 +13,7 @@ import ScopeBar from '../components/ScopeBar.vue'
 import EndpointExplain from '../components/EndpointExplain.vue'
 import ClusterDrawer from '../components/ClusterDrawer.vue'
 import { catalogFor,readCatalog,type CatalogEndpoint } from '../api/catalog'
+import { mergeByCatalog } from '../topology/catalog-merge'
 import { addressesOverlap,endpointMarks,endpointStates,loadManualReview,manualReviewKey,sanitizeAddress,saveManualReview,unregisteredSummary,type EndpointState } from '../topology/unregistered'
 import { filterByScope,groupByScope,mergeEntries,needsScopeBar,scopeSummary,withScopeNames } from '../topology/scopes'
 import { filterGraph,mappingLabel,mappingName,nodeIdentity,unknown } from '../topology/model'
@@ -67,7 +68,8 @@ const showScopeBar=computed(()=>autoMode.value&&needsScopeBar(entries.value))
 const summary=computed(()=>scopeSummary(entries.value))
 const scopeClusters=computed(()=>[...new Set(entries.value.filter(e=>includeRemoved.value||!e.scope.removed).map(e=>e.scope.k8s_cluster??e.scope.id))].sort())
 const scopeNamespaces=computed(()=>{const seen=new Map<string,{cluster:string;namespace:string}>();for(const l of snapshot.value?.links??[])if(l.k8s_cluster)seen.set(l.k8s_cluster+'/'+l.namespace,{cluster:l.k8s_cluster,namespace:l.namespace});return [...seen.values()].sort((a,b)=>(a.cluster+a.namespace).localeCompare(b.cluster+b.namespace))})
-const scoped=computed(()=>snapshot.value&&autoMode.value?withScopeNames(filterByScope(snapshot.value,scopeCluster.value,scopeNamespace.value),showScopeBar.value):snapshot.value)
+const catalog=shallowRef<CatalogEndpoint[]>([])
+const scoped=computed(()=>{const s=snapshot.value&&autoMode.value?withScopeNames(filterByScope(snapshot.value,scopeCluster.value,scopeNamespace.value),showScopeBar.value):snapshot.value;return s?mergeByCatalog(s,catalog.value):s})
 const scopeGroups=computed(()=>showScopeBar.value&&visible.value?groupByScope(visible.value.links,summary.value.suspected.filter(w=>!scopeCluster.value||w.k8s_cluster===scopeCluster.value)):[])
 watch(includeRemoved,()=>{if(autoMode.value&&entries.value.length)snapshot.value=mergeEntries(entries.value,{includeRemoved:includeRemoved.value})})
 const positions=ref<Record<string,Position>>({}),filters=ref({room:'',environment:''}),layers=ref({kafka:true,workloads:true})
@@ -104,7 +106,7 @@ function pathName(ids:string[]){return ids.filter(id=>visible.value?.nodes.some(
 function choosePath(){selected.value='';selectedNode.value='';routeLinkIds.value=[]}
 watch([pathSource,pathTarget],()=>{pathKey.value='';choosePath()})
 
-const focusName=computed(()=>snapshot.value&&selectedNode.value?nodeIdentity(snapshot.value,selectedNode.value,clusters.value):'')
+const focusName=computed(()=>{if(!snapshot.value||!selectedNode.value)return '';if(selectedNode.value.startsWith('catalog:'))return drawerRow.value?.aliases.join(' / ')||visible.value?.nodes.find(n=>n.id===selectedNode.value)?.label||'';return nodeIdentity(snapshot.value,selectedNode.value,clusters.value)})
 function layoutKey(id:string){return (mode.value==='relations'?'relations':graphMode.value)+':'+id}
 function restorePositions(){
  if(!visible.value)return
@@ -167,10 +169,9 @@ const endpointPanel=computed(()=>{
  const m=link?(link.target.alias===s.alias&&!endpointOf(link.source)?link.target:link.source.alias===s.alias?link.source:link.target):undefined
  return {endpoint:s,addresses:m?mm2Addresses(m):[],linkId:link?.id}
 })
-const catalog=shallowRef<CatalogEndpoint[]>([])
 async function loadCatalog(){try{catalog.value=await readCatalog()}catch{catalog.value=[]}}
 /** Catalog row for the selected node: registration id first, then the MM2 addresses of an unregistered end. */
-const drawerRow=computed(()=>{if(!selectedNode.value||!catalog.value.length)return undefined;return catalogFor(catalog.value,{registrationId:selectedNode.value,addresses:endpointPanel.value?.addresses})})
+const drawerRow=computed(()=>{if(!selectedNode.value||!catalog.value.length)return undefined;const byNode=selectedNode.value.startsWith('catalog:')?catalog.value.find(r=>`catalog:${r.id}`===selectedNode.value):undefined;return byNode??catalogFor(catalog.value,{registrationId:selectedNode.value,addresses:endpointPanel.value?.addresses})})
 const manual=ref<Record<string,{id:string;ok:boolean}>>({}),manualOpen=ref('')
 watch(detail,d=>{manual.value=d?Object.fromEntries([d.source,d.target].map(m=>[m.alias,{id:'',ok:false}])):{}},{immediate:true})
 function addressMismatch(m:MappingT){const id=manual.value[m.alias]?.id,a=mm2Addresses(m);return !!id&&a.length>0&&!addressesOverlap(a,registrationAddresses(id))}
