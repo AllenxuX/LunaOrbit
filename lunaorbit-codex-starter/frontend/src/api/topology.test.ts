@@ -31,3 +31,14 @@ it('rejects missing directional edges',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify(data))))
  await expect(readSnapshot('scope')).rejects.toThrow('响应不完整')
 })
+
+it('keeps MM2 removed from the cluster out of the current graph and counts, as history only',async()=>{
+ const current=Array.from({length:12},(_,i)=>({id:'c'+i})),removed=Array.from({length:10},(_,i)=>({id:'old'+i,removed:true,state:'unknown'}))
+ const body={page:1,page_size:100,total:22,snapshot:{scope_id:'scope',observed_at:'then',attempted_at:'now',stale:false,links:[...current,...removed],
+  nodes:[{id:'source',kind:'kafka'},{id:'work',kind:'workload'},{id:'target',kind:'kafka'}],
+  edges:current.flatMap(l=>[{id:l.id+'-in',link_id:l.id,source:'source',target:'work',relation:'declared_input'},{id:l.id+'-out',link_id:l.id,source:'work',target:'target',relation:'declared_output'}])}}
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify(body))))
+ const result=await readSnapshot('scope')
+ expect(result.links).toHaveLength(12);expect(result.links.some(l=>l.removed)).toBe(false)
+ expect(result.removed_links?.map(l=>l.id)).toEqual(removed.map(l=>l.id))
+})
