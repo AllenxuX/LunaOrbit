@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { registryRequest, type ClusterPage } from '../api/registry'
 import { kafkaList, type Topic } from '../api/kafkaops'
 import { readLineage, observedTime, evidenceLabel, kindLabel, resourcePath, type Direction, type Lineage, type LineageNode } from '../api/topic-lineage'
-import { cacheKey, classifyCandidate, syncCoverage, classifyLineage, collapseLineage, conditionsChanged, pickDisplayGraph, resolveSources, type NodeState, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
+import { cacheKey, classifyCandidate, syncCoverage, classifyLineage, collapseLineage, conditionsChanged, unregisteredBreaks, pickDisplayGraph, resolveSources, type NodeState, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
 import TopicLineageCanvas from '../components/TopicLineageCanvas.vue'
 import { fullName } from '../topology/scopes'
 type ViewEdge=LineageView['edges'][number]
@@ -37,7 +37,7 @@ const selectedPath=computed(()=>selectedNode.value?resourcePath(selectedNode.val
 const canQuery=computed(()=>!!cluster.value&&!!topic.value.trim()&&topicState.value!=='missing'&&!busy.value)
 const edgeFreshness=computed(()=>discovery.value?.stale||display.value.graph!==data.value?'数据已过期':'当前')
 const states=shallowRef<Record<string,NodeState>>({}),summary=ref('')
-const canvasStates=computed(()=>{const pending=new Set(unparsedIssues.value.map(i=>i.cluster_id).filter(Boolean)),out:Record<string,NodeState>={...states.value};for(const n of data.value?.nodes??[])if(n.cluster_id&&pending.has(n.cluster_id)&&out[n.id])out[n.id]={...out[n.id]!,text:out[n.id]!.text?`${out[n.id]!.text} · 待确认`:'待确认'};return out})
+const canvasStates=computed(()=>{const pending=new Set(unparsedIssues.value.map(i=>i.cluster_id).filter(Boolean)),out:Record<string,NodeState>={...states.value};for(const n of data.value?.nodes??[])if(n.cluster_id&&pending.has(n.cluster_id)&&out[n.id])out[n.id]={...out[n.id]!,text:out[n.id]!.text?`${out[n.id]!.text} · 待确认`:'待确认'};const breaks=data.value&&discovery.value?unregisteredBreaks(data.value,discovery.value.links):[];for(const n of data.value?.nodes??[])for(const b of breaks)if(n.kind==='topic'&&n.cluster_id===b.clusterId){const prev=out[n.id]??{kind:'exists' as const,text:''},note=`下一跳 ${b.alias} 未登记，链路在此中断`;if(!prev.text.includes(note))out[n.id]={...prev,text:prev.text?`${prev.text} · ${note}`:note}};return out})
 function existence(n:LineageNode){const st=states.value[n.id];return !st?(n.exists===true?'已存在':'Topic 存在性未确认'):st.kind==='exists'?'已存在':st.text}
 async function loadTopics(){
  const token=++catalogEpoch;topics.value=[];catalogError.value='';if(!cluster.value){topicState.value='unknown';return}

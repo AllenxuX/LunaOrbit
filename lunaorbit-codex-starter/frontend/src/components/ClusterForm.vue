@@ -3,13 +3,14 @@ import { useRuntime } from '../composables/useRuntime'
 import { computed, onUnmounted, reactive, ref } from 'vue'
 import { ApiError } from '../api/client'
 import { registryRequest, type Cluster, type Credentials } from '../api/registry'
+import { sanitizeAddress } from '../topology/unregistered'
 
 const { runtime } = useRuntime()
-const props = defineProps<{ cluster?: Cluster }>()
+const props = defineProps<{ cluster?: Cluster; prefill?: { display_name: string; bootstrap_servers: string[] } }>()
 const emit = defineEmits<{ saved: []; cancel: [] }>()
 const cluster = props.cluster
-const base = reactive({ display_name: cluster?.display_name ?? '', room: cluster?.room ?? '', environment: cluster?.environment ?? '', description: cluster?.description ?? '', enabled: cluster?.enabled ?? true, version_reported: cluster?.version_reported ?? '' })
-const endpoints = ref(cluster?.bootstrap_servers.join('\n') ?? '')
+const base = reactive({ display_name: cluster?.display_name ?? props.prefill?.display_name ?? '', room: cluster?.room ?? '', environment: cluster?.environment ?? '', description: cluster?.description ?? '', enabled: cluster?.enabled ?? true, version_reported: cluster?.version_reported ?? '' })
+const endpoints = ref(cluster?.bootstrap_servers.join('\n') ?? props.prefill?.bootstrap_servers.map(sanitizeAddress).filter(Boolean).join('\n') ?? '')
 const credentials = reactive<Credentials>({ security_protocol: cluster?.security_protocol ?? 'SASL_SSL', sasl_mechanism: cluster?.sasl_mechanism || 'PLAIN', username: '', password: '', tls_ca_pem: '', tls_cert_pem: '', tls_key_pem: '', tls_server_name: cluster?.tls_server_name ?? '' })
 const sasl = computed(() => credentials.security_protocol.startsWith('SASL'))
 const tls = computed(() => credentials.security_protocol.endsWith('SSL'))

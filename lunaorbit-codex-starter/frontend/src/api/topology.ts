@@ -1,6 +1,6 @@
 import { registryRequest } from './registry'
 import { ApiError } from './client'
-export interface Mapping { alias:string; status:string; method:string; confidence:string; registration_id?:string; candidate_ids:string[]|null; cluster_id?:string }
+export interface Mapping { alias:string; status:string; method:string; confidence:string; registration_id?:string; candidate_ids:string[]|null; cluster_id?:string; /** host:port only, parsed from the MM2 config. */ bootstrap_addresses?:string[]|null }
 export interface Evidence { scope_id:string;namespace:string;deployment_uid:string;deployment_name:string;configmap_name:string;configmap_uid:string;resource_version:string;config_key:string;reference_kind:string;fingerprint:string;observed_at:string }
 export interface Link {
  id:string;namespace:string;workload_uid:string;workload_name:string;source_alias:string;target_alias:string;topics_raw:string;policy:string;enabled:boolean

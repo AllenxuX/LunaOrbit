@@ -8,7 +8,7 @@ import ClusterForm from '../components/ClusterForm.vue'
 const { runtime } = useRuntime()
 
 const isMock = computed(() => runtime.value?.mode === 'mock')
-const props = defineProps<{ focusId?: string }>()
+const props = defineProps<{ focusId?: string; prefill?: { display_name: string; bootstrap_servers: string[] } }>()
 const focused = () => props.focusId && /^[a-f0-9]{32}$/.test(props.focusId) ? props.focusId : ''
 
 const items = ref<Cluster[]>([]), total = ref(0), page = ref(1), query = ref('')
@@ -32,7 +32,7 @@ async function load() {
 }
 watch(() => props.focusId, () => { if (ready.value) void load() })
 onMounted(async () => {
-  try { const session = await ensureSession(); persistent.value = session.persistent; ready.value = true; await load() }
+  try { const session = await ensureSession(); persistent.value = session.persistent; ready.value = true; await load(); if (props.prefill) openForm() }
   catch (e) { fail(e) }
 })
 onUnmounted(() => { disposed = true; globalThis.clearTimeout(pollTimer) })
@@ -103,7 +103,7 @@ async function probe(cluster: Cluster) {
       </div>
       <div class="pagination"><button :disabled="page <= 1 || busy" @click="page--; load()">上一页</button><span>第 {{ page }} 页 · {{ total }} 条</span><button :disabled="page * 20 >= total || busy" @click="page++; load()">下一页</button></div>
     </section>
-    <ClusterForm v-if="formOpen" :cluster="editing" @saved="saved" @cancel="formOpen = false; editing = undefined" />
+    <ClusterForm v-if="formOpen" :cluster="editing" :prefill="editing ? undefined : props.prefill" @saved="saved" @cancel="formOpen = false; editing = undefined" />
     <div v-if="deleting" class="modal-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="delete-title" class="registry-dialog"><h2 id="delete-title">移除集群</h2><p>删除添加「{{ deleting.display_name }}」？不会删除 Kafka 数据；添加将从列表移除。</p><button class="button-danger" :disabled="busy" @click="remove">移除集群</button><button :disabled="busy" @click="deleting = undefined">取消</button></section></div>
   </section>
 </template>

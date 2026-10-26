@@ -93,3 +93,13 @@ it('opens the exact topology registration even when it is outside the first list
  expect(vi.mocked(fetch).mock.calls.some(c=>String(c[0]).endsWith('/kafka/clusters/'+id))).toBe(true)
  wrapper.unmount()
 })
+
+it('opens the registration form prefilled from an unregistered MM2 endpoint, address only, secrets blank', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/session') ? { user_id: 'synthetic', mode: 'mock', persistent: false } : { items: [cluster], total: 1, page: 1, page_size: 20 }))))
+  const wrapper = mount(Clusters, { props: { prefill: { display_name: 'k9', bootstrap_servers: ['SASL_SSL://u:pw@k9-kafka.luna-kafka.svc:9092', 'k9-b:9092'] } } }); await flushPromises()
+  expect((wrapper.get('input[maxlength="120"]').element as HTMLInputElement).value).toBe('k9')
+  expect((wrapper.get('textarea[placeholder="broker.example.test:9093"]').element as HTMLTextAreaElement).value).toBe('k9-kafka.luna-kafka.svc:9092\nk9-b:9092')
+  expect(wrapper.html()).not.toContain('pw@')
+  expect(wrapper.findAll('input[type="password"]').every(i => (i.element as HTMLInputElement).value === '')).toBe(true)
+  wrapper.unmount()
+})

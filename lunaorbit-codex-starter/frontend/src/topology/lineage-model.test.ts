@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Lineage } from '../api/topic-lineage'
-import { classifyLineage, collapseLineage, conditionsChanged, matchesRule, pickDisplayGraph, type RuleLink } from './lineage-model'
+import { unregisteredBreaks, classifyLineage, collapseLineage, conditionsChanged, matchesRule, pickDisplayGraph, type RuleLink } from './lineage-model'
 
 const T=(c:string,t='orders',exists:boolean|null=true)=>({id:`topic:${c}:${t}`,kind:'topic' as const,label:t,cluster_id:c,cluster_name:'name-'+c,topic:t,exists,evidence:'observed' as const,observed_at:'2026-10-25T10:00:00Z'})
 const M=(id:string,label:string)=>({id:`mm2:${id}`,kind:'mm2' as const,label,link_id:id,exists:null,evidence:'configured' as const})
@@ -63,6 +63,20 @@ describe('six empty / incomplete reasons',()=>{
   const links=[rule({}),rule({id:'L2',source:{registration_id:'b',status:'confirmed'},target:{registration_id:'c',status:'confirmed'}}),rule({id:'L3',source:{registration_id:'c',status:'confirmed'},target:{registration_id:'d',status:'confirmed'}})]
   expect(classifyLineage({...base,result:deep,links}).map(x=>x.kind)).toEqual(['budget'])
   expect(classifyLineage({...base,result:{...rootOnly(),truncated:true,issues:[{code:'READ_BUDGET',message:'x'}]},links:[rule({})]}).map(x=>x.kind)).toContain('budget')
+ })
+ it('an unregistered next hop breaks the chain at the last judgeable cluster with a register entry',()=>{
+  const r=classifyLineage({...base,result:{...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'a',link_id:'L1'}]},links:[rule({target:{alias:'k9',status:'unknown',candidate_ids:[]}})]})
+  expect(r.map(x=>x.kind)).toEqual(['unregistered'])
+  expect(r[0]).toMatchObject({title:'1 处因未登记中断',facts:['下一跳 k9 未登记，链路在此中断'],actions:[{label:'去登记 k9',to:'/kafka/clusters?register=1&name=k9'}]})
+  expect(unregisteredBreaks({...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'a',link_id:'L1'}]},[rule({target:{alias:'k9',status:'unknown',candidate_ids:[]}})])).toEqual([{clusterId:'a',alias:'k9',linkId:'L1',addresses:[]}])
+ })
+ it('the register entry carries the MM2 address of the unregistered hop',()=>{
+  const r=classifyLineage({...base,result:{...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'a',link_id:'L1'}]},links:[rule({target:{alias:'k9',status:'unknown',candidate_ids:[],bootstrap_addresses:['k9-kafka.svc:9092']}})]})
+  expect(r[0]!.actions[0]!.to).toBe('/kafka/clusters?register=1&name=k9&bootstrap=k9-kafka.svc%3A9092')
+ })
+ it('upstream: an unregistered source breaks the chain at the target cluster',()=>{
+  const r=unregisteredBreaks({...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',cluster_id:'b',link_id:'L1'}]},[rule({source:{alias:'k0',status:'unknown',candidate_ids:null}})])
+  expect(r).toEqual([{clusterId:'b',alias:'k0',linkId:'L1',addresses:[]}])
  })
  it('⑥ cluster mapping not confirmed',()=>{
   const r=classifyLineage({...base,result:{...rootOnly(),issues:[{code:'UNRESOLVED_MAPPING',message:'x',link_id:'L1'}]},links:[rule({target:{registration_id:'',status:'candidate'}})]})

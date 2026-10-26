@@ -84,3 +84,17 @@ export function scopeSnapshot(scope:string,cluster:string,rows:[string,string,st
   workloads:rows.map(r=>({k8s_cluster:cluster,namespace:r[1],name:r[2],workload_uid:'uid-'+r[0],status:'confirmed' as const,signals:['command:connect-mirror-maker.sh']})),
   scan:{k8s_cluster:cluster,namespaces:3,deployments:9,namespaces_with_mm2:new Set(rows.map(r=>r[1])).size,confirmed:rows.length,suspected:0}}
 }
+
+/** Current lab shaped like a real snapshot: registered clusters are `kafka:<id>` with confirmed mappings,
+ *  clusters in `unregistered` stay `alias:<k>` with no candidates; `ambiguous` ones get two candidates. */
+export function registeredLab(unregistered:string[]=[],ambiguous:string[]=[]):Snapshot {
+ const base=currentLab()
+ const nodeId=(k:string)=>unregistered.includes(k)||ambiguous.includes(k)?'alias:'+k:'kafka:'+k
+ const map=(m:Link['source']):Link['source']=>unregistered.includes(m.alias)?{alias:m.alias,status:'unknown',method:'unmatched',confidence:'low',candidate_ids:[]}
+  :ambiguous.includes(m.alias)?{alias:m.alias,status:'ambiguous',method:'bootstrap_ambiguous',confidence:'low',candidate_ids:['k1','k2']}
+  :{alias:m.alias,status:'confirmed',method:'manual',confidence:'manual',registration_id:m.alias,candidate_ids:[m.alias]}
+ return {...base,scope_id:'lab',nodes:base.nodes.map(n=>n.kind==='kafka'?{...n,id:nodeId(n.id)}:n),
+  edges:base.edges.map(e=>({...e,source:e.source.startsWith('k')?nodeId(e.source):e.source,target:e.target.startsWith('k')?nodeId(e.target):e.target})),
+  links:base.links.map(l=>({...l,namespace:'luna-kafka',workload_uid:'uid-'+l.id,topics_raw:'.*',policy:'org.apache.kafka.connect.mirror.IdentityReplicationPolicy',observed_at:'2026-10-26T01:00:00Z',runtime:{generation:1,observed_generation:1,replicas:1,ready_replicas:1,pod_candidates:0,pod_association:'label_candidates_only'},evidence:[],notes:[],source:map(l.source),target:map(l.target)}))}
+}
+export const labRegistrations=(skip:string[]=[])=>Array.from({length:9},(_,i)=>'k'+(i+1)).filter(k=>!skip.includes(k)).map(k=>({id:k,display_name:'luna-'+k,bootstrap_servers:['127.0.0.1:'+(19091+Number(k.slice(1)))],room:'lab',environment:'lab'}))

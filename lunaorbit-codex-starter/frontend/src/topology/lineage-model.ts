@@ -1,15 +1,18 @@
 import type { Direction, Lineage, LineageEdge, LineageNode } from '../api/topic-lineage'
+import { registerHref } from './unregistered'
 
+/** One end of a rule's mapping; alias/candidates come from the discovery snapshot. */
+export interface RuleEnd {registration_id?:string;status:string;alias?:string;candidate_ids?:string[]|null;bootstrap_addresses?:string[]|null}
 export interface RuleLink {
  id:string;workload_name:string;enabled:boolean;topics_raw:string;topics_exclude_raw:string
- source:{registration_id?:string;status:string};target:{registration_id?:string;status:string}
+ source:RuleEnd;target:RuleEnd
  semantics_known:boolean;stale:boolean;policy?:string
  /** Discovery scope the rule came from (added when scopes are read); auto scopes also carry K8s cluster and namespace. */
  scope_id?:string;k8s_cluster?:string;namespace?:string
 }
 export interface LineageView {nodes:LineageNode[];edges:(LineageEdge&{label?:string;linkId?:string;mm2Id?:string})[]}
 export interface UnparsedGroup {task:string;where:string;impact:string;to:string}
-export interface Reason {kind:'unreadable'|'no_rule'|'excluded'|'internal'|'untrusted'|'unparsed'|'budget'|'unmapped';title:string;facts:string[];actions:{label:string;to?:string;action?:'refresh'|'deeper'|'retry'}[];groups?:UnparsedGroup[];more?:number}
+export interface Reason {kind:'unreadable'|'no_rule'|'excluded'|'internal'|'untrusted'|'unparsed'|'budget'|'unmapped'|'unregistered';title:string;facts:string[];actions:{label:string;to?:string;action?:'refresh'|'deeper'|'retry'}[];groups?:UnparsedGroup[];more?:number}
 export interface Conditions {cluster:string;topic:string;direction:Direction;depth:number}
 
 const policyName=(p?:string)=>p?.endsWith('IdentityReplicationPolicy')?'Identity':p?.endsWith('DefaultReplicationPolicy')?'Default':p?p.split('.').at(-1)!:'策略未知'
@@ -105,7 +108,9 @@ export function classifyLineage(input:Conditions&{result:Lineage;links:RuleLink[
   reasons.push({kind:'unparsed',title:`${groups.length} 个同步任务的规则无法解析`,facts:[],groups:groups.slice(0,3),more:Math.max(0,groups.length-3),actions:[{label:'在 MM2 拓扑查看',to:MM2_RULES}]})
  }
  const internalHit=isInternalTopic(topic)||codes.has('HEARTBEAT_POLICY_UNKNOWN')
- const unmapped=result.issues.filter(i=>i.code==='UNRESOLVED_MAPPING')
+ const breaks=unregisteredBreaks(result,links),broken=new Set(breaks.map(b=>b.linkId))
+ if(breaks.length)reasons.push({kind:'unregistered',title:`${breaks.length} 处因未登记中断`,facts:breaks.map(b=>`下一跳 ${b.alias} 未登记，链路在此中断`),actions:[...new Set(breaks.map(b=>b.alias))].map(alias=>({label:`去登记 ${alias}`,to:registerHref(alias,breaks.find(b=>b.alias===alias)!.addresses)}))})
+ const unmapped=result.issues.filter(i=>i.code==='UNRESOLVED_MAPPING'&&!broken.has(i.link_id??''))
  if(unmapped.length)reasons.push({kind:'unmapped',title:'集群映射未确认',facts:[...new Set(unmapped.map(i=>{const l=links.find(x=>x.id===i.link_id);return l?`MM2 ${l.workload_name} 的集群别名尚未确认对应哪个 Kafka 集群，已保留已知路径。`:i.message}))],actions:[{label:'查看集群映射',to:'/topology?view=mm2'},...unmapped.flatMap(i=>i.link_id?[{label:'查看 MM2 配置',to:linkPath(i.link_id,links)}]:[]).slice(0,1)]})
  // Depth: a boundary node at the maximum hop that still has a matching enabled rule onwards.
  const d=hops(view,result.root_id),boundary=view.nodes.filter(n=>n.kind==='topic'&&d.get(n.id)===result.depth)
@@ -185,4 +190,19 @@ export function resolveSources(input:{direction:Direction;up?:Lineage;down?:Line
  const parts=[sources.length===1&&!breaks?`源头：${sources[0]}`:`源头 ${sources.length} 个${sources.length?'：'+sources.join('、'):''}`]
  if(breaks)parts.push(`断点 ${breaks} 处`);if(pending)parts.push(`未出现 ${pending} 个`)
  return {graph,states,summary:parts.join(' · '),rootMissing:false,sources}
+}
+
+const unregisteredEnd=(end:RuleEnd)=>end.status!=='confirmed'&&!(end.candidate_ids?.length)
+/** Chain breaks caused by an MM2 end that matches no registered cluster: the walk stopped at clusterId. */
+export function unregisteredBreaks(result:Pick<Lineage,'issues'>,links:RuleLink[]):{clusterId:string;alias:string;linkId:string;addresses:string[]}[]{
+ const out:{clusterId:string;alias:string;linkId:string;addresses:string[]}[]=[]
+ for(const issue of result.issues){
+  if(issue.code!=='UNRESOLVED_MAPPING'||!issue.cluster_id||!issue.link_id)continue
+  const link=links.find(l=>l.id===issue.link_id)
+  if(!link)continue
+  const far=link.source.registration_id===issue.cluster_id?link.target:link.target.registration_id===issue.cluster_id?link.source:undefined
+  if(!far||!unregisteredEnd(far))continue
+  if(!out.some(b=>b.clusterId===issue.cluster_id&&b.linkId===link.id))out.push({clusterId:issue.cluster_id,alias:far.alias||'未知端点',linkId:link.id,addresses:far.bootstrap_addresses??[]})
+ }
+ return out
 }

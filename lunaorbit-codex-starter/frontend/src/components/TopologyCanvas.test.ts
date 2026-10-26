@@ -168,3 +168,17 @@ it('switching tabs (mode) still replaces an in-flight layout immediately',async(
  fake.gate=undefined;await w.setProps({mode:'chain'});await flushPromises()
  expect(fake.cancels).toBe(1);expect(fake.requests).toBe(2);await ready();open();w.unmount()
 })
+
+it('unregistered endpoints are grey, dashed, badged "未登记" with a "未登记" subtitle; reviewed manual bindings get their own badge',async()=>{
+ const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{},endpointMarks:{b:'未登记',a:'人工绑定 · 需复核'}}});await ready()
+ const attrs=(id:string)=>(fake.nodes.find(n=>n.id===id) as unknown as {attrs:Record<string,Record<string,unknown>>}).attrs
+ expect(attrs('b').body).toMatchObject({fill:'#f1f2f4',stroke:'#8a94a6',strokeDasharray:'5 3'})
+ expect(attrs('b').badge!.text).toBe('未登记');expect(attrs('b').meta!.text).toBe('未登记')
+ expect(attrs('a').badge!.text).toBe('人工绑定 · 需复核');expect(attrs('a').body!.strokeDasharray).toBeUndefined()
+ w.unmount()
+})
+it('registered clusters carry no badge',async()=>{
+ const w=mount(TopologyCanvas,{props:{snapshot:snapshot(),positions:{}}});await ready()
+ for(const n of fake.nodes){const a=(n as unknown as {attrs:Record<string,Record<string,unknown>>}).attrs;expect(a.badge?.text??'').toBe('');expect(a.body!.strokeDasharray).toBeUndefined()}
+ w.unmount()
+})

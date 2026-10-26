@@ -195,4 +195,17 @@ describe('Topic 链路 page',()=>{
   expect(wrapper.html()).not.toContain('readonly-lab')
   wrapper.unmount()
  })
+ it('an unregistered next hop: chain stops at the last judgeable cluster, marked, with a register entry on top',async()=>{
+  const k9={id:'L9',workload_name:'mm2-b-k9',enabled:true,topics_raw:'.*',topics_exclude_raw:'',source:{alias:'b',registration_id:'b',status:'confirmed',candidate_ids:['b']},target:{alias:'k9',status:'unknown',candidate_ids:[]},semantics_known:true,stale:false,state:'declared'}
+  stub({lineage:{...graph,issues:[{code:'UNRESOLVED_MAPPING',message:'同步链路的集群映射尚未确认',cluster_id:'b',link_id:'L9'}]},links:[link,k9]})
+  const {wrapper}=await page()
+  const reason=wrapper.get('[data-reason="unregistered"]')
+  expect(reason.text()).toContain('1 处因未登记中断');expect(reason.text()).toContain('下一跳 k9 未登记，链路在此中断')
+  expect(reason.get('a').attributes('href')).toBe('/kafka/clusters?register=1&name=k9')
+  expect(wrapper.find('[data-reason="unmapped"]').exists()).toBe(false)
+  const states=wrapper.findComponent({name:'TopicLineageCanvas'}).props('states') as Record<string,{text:string}>
+  expect(states['topic:b']!.text).toContain('下一跳 k9 未登记，链路在此中断')
+  expect(view(wrapper).nodes.map(n=>n.id)).toEqual(['topic:a','topic:b'])
+  wrapper.unmount()
+ })
 })

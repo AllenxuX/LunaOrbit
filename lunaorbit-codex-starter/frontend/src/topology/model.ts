@@ -83,7 +83,7 @@ export function mappingRegistrations<T extends RegistrationIdentity>(mapping:Map
 export function mappingName(mapping:Mapping,rows:RegistrationIdentity[]):string {
  const matches=mappingRegistrations(mapping,rows)
  if(matches.length===1)return matches[0]!.display_name+(mapping.status==='confirmed'?'':'（候选，待确认）')
- return `${mapping.alias}（${matches.length>1?'多个候选':'未关联集群'}）`
+ return matches.length>1?`${mapping.alias}（多个候选）`:mapping.alias
 }
 export function nodeIdentity(snapshot:Snapshot,nodeId:string,rows:RegistrationIdentity[]):string {
  const node=snapshot.nodes.find(n=>n.id===nodeId)
@@ -93,5 +93,5 @@ export function nodeIdentity(snapshot:Snapshot,nodeId:string,rows:RegistrationId
   return link?[edge.source===nodeId?link.source:link.target]:[]
  })
  const labels=mappings.filter(mapping=>mappingRegistrations(mapping,rows).length>0).map(mapping=>mappingName(mapping,rows))
- return labels.length?[...new Set(labels)].join('\n'):`${node?.label??'Kafka'}（未关联集群）`
+ return labels.length?[...new Set(labels)].join('\n'):node?.label??'Kafka'
 }

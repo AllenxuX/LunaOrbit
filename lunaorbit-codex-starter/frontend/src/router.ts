@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { sanitizeAddress } from './topology/unregistered'
 import Overview from './views/Overview.vue'
 import NotFound from './views/NotFound.vue'
 import Clusters from './views/Clusters.vue'
@@ -23,7 +24,7 @@ export const router = createRouter({
     { path: '/topology', component: () => import('./views/Topology.vue') },
     { path: '/applications', component: () => import('./views/InformationApplications.vue') },
     { path: '/topology/:scopeId/links/:linkId', component: () => import('./views/SyncLinkDetails.vue'), props: true },
-    { path: '/kafka/clusters', component: Clusters, props: route => ({ focusId: route.hash.startsWith('#cluster-') ? route.hash.slice(9) : undefined }) },
+    { path: '/kafka/clusters', component: Clusters, props: route => ({ focusId: route.hash.startsWith('#cluster-') ? route.hash.slice(9) : undefined, prefill: route.query.register === '1' ? { display_name: String(route.query.name ?? '').slice(0, 120), bootstrap_servers: String(route.query.bootstrap ?? '').split(',').map(sanitizeAddress).filter(Boolean) } : undefined }) },
     { path: '/:pathMatch(.*)*', component: NotFound },
   ],
 })

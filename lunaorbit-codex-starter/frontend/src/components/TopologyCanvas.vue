@@ -9,7 +9,7 @@ import { clusterNodeHeight,clusterNodeWidth,labelDistance,lineage,middleEllipsis
 import { createLayoutTask,type LayoutTask } from '../topology/layout-client'
 import { RoutingSession } from '../topology/stable-routing'
 import type { LayoutPlan,RoutingUpdate } from '../topology/routing-types'
-const props=withDefaults(defineProps<{snapshot:Snapshot;positions:Record<string,Position>;affectedNodes?:string[];confirmedLinks?:string[];registrations?:RegistrationIdentity[];mode?:CanvasMode;showDisabled?:boolean;groupMeta?:Record<string,ClusterMeta>;selectedLinkIds?:string[];focusNodeId?:string;focusDirection?:'neighbors'|'upstream'|'downstream';nodeHints?:Record<string,string>;pathNodeIds?:string[]}>(),{mode:'relations',showDisabled:false,groupMeta:()=>({}),focusDirection:'neighbors',affectedNodes:()=>[],confirmedLinks:()=>[],registrations:()=>[],selectedLinkIds:()=>[],focusNodeId:undefined,nodeHints:()=>({}),pathNodeIds:()=>[]})
+const props=withDefaults(defineProps<{snapshot:Snapshot;positions:Record<string,Position>;affectedNodes?:string[];confirmedLinks?:string[];registrations?:RegistrationIdentity[];mode?:CanvasMode;showDisabled?:boolean;groupMeta?:Record<string,ClusterMeta>;selectedLinkIds?:string[];focusNodeId?:string;focusDirection?:'neighbors'|'upstream'|'downstream';nodeHints?:Record<string,string>;pathNodeIds?:string[];endpointMarks?:Record<string,string>}>(),{mode:'relations',showDisabled:false,groupMeta:()=>({}),focusDirection:'neighbors',affectedNodes:()=>[],confirmedLinks:()=>[],endpointMarks:()=>({}),registrations:()=>[],selectedLinkIds:()=>[],focusNodeId:undefined,nodeHints:()=>({}),pathNodeIds:()=>[]})
 const emit=defineEmits<{move:[id:string,position:Position];select:[linkId:string];selectLinks:[ids:string[]];selectNode:[nodeId:string];clear:[];layoutBusy:[busy:boolean];organize:[]}>()
 const container=ref<InstanceType<typeof globalThis.HTMLDivElement>>()
 const expandedGroups=ref(new Set<string>())
@@ -78,7 +78,11 @@ function dash(edge:PresentationEdge){return pairs.value?(edge.state==='disabled'
 function color(edge:PresentationEdge){if(pairs.value)return edge.state==='disabled'?'#a3abb8':'#8a94a6';return edge.stale||edge.state==='disabled'?'#929aa6':edge.state==='verified'?'#35744e':edge.state==='unknown'?'#bd8b39':'#758aa5'}
 function status(edge:PresentationEdge){return edge.stale?'数据已过期 · 状态未知':edge.state==='disabled'?'同步已禁用':edge.state==='verified'?'链路已验证':edge.state==='unknown'?'状态未知':'链路未验证'}
 function name(id:string){const node=presentation.value.nodes.find(n=>n.id===id);return node?.linkId||id.startsWith('group:')?node?.label??id:nodeIdentity(props.snapshot,id,props.registrations??[])}
-function meta(id:string,kind:string,linkId?:string){if(pairs.value)return groupCards.value.get(id)??'';if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
+// Unregistered MM2 endpoints: grey, dashed, "未登记" badge + subtitle. Other marks (manual review) only add a badge.
+function unregistered(id:string){return props.endpointMarks?.[id]==='未登记'}
+function nodeBody(id:string,kind:string){return unregistered(id)?{fill:'#f1f2f4',stroke:'#8a94a6',strokeDasharray:'5 3'}:{fill:kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:kind==='kafka'?'#6386c7':'#8b70ba'}}
+function badge(id:string){const text=props.endpointMarks?.[id]??'';return {text,refX:'100%',refX2:-8,refY:10,textAnchor:'end',textVerticalAnchor:'middle',fontSize:10,fontWeight:600,fill:unregistered(id)?'#4b5565':'#b45309'}}
+function meta(id:string,kind:string,linkId?:string){if(unregistered(id))return '未登记';if(pairs.value)return groupCards.value.get(id)??'';if(groupCards.value.has(id))return groupCards.value.get(id)!;return `${kind==='kafka'?'Kafka':linkId?'MM2 同步任务':'MM2'}${props.nodeHints?.[id]?' · '+props.nodeHints[id]:''}`}
 function overlays(){
  if(!graph)return
  const focus=props.focusNodeId?layered.value?(r=>({nodeIds:[props.focusNodeId!,...r.upstream,...r.downstream],edgeIds:r.edgeIds}))(lineage(presentation.value,props.focusNodeId)):focusPresentation(presentation.value,props.focusNodeId,props.focusDirection):undefined
@@ -128,9 +132,9 @@ function draw(){
  for(const n of presentation.value.nodes){
   const p=positions[n.id]!
   const related=presentation.value.edges.flatMap(e=>(['source','target'] as const).filter(end=>e[end]===n.id).map(end=>{const anchor=plan!.ports[e.id]![end];return {id:port(e,end),group:anchor.side,args:{x:anchor.side==='right'?nodeWidth():0,y:anchor.offset}}}))
-  const cell=graph.createNode({id:n.id,x:p.x,y:p.y,width:nodeWidth(),height:nodeHeight(),shape:'rect',markup:[{tagName:'title',selector:'title'},{tagName:'rect',selector:'body'},{tagName:'text',selector:'label'},{tagName:'text',selector:'meta'}],
+  const cell=graph.createNode({id:n.id,x:p.x,y:p.y,width:nodeWidth(),height:nodeHeight(),shape:'rect',markup:[{tagName:'title',selector:'title'},{tagName:'rect',selector:'body'},{tagName:'text',selector:'label'},{tagName:'text',selector:'meta'},{tagName:'text',selector:'badge'}],
    ports:{groups:{left:{position:'absolute',attrs:{circle:{r:0,magnet:false}}},right:{position:'absolute',attrs:{circle:{r:0,magnet:false}}}},items:related},
-   attrs:{title:{text:name(n.id)},body:{fill:n.kind==='kafka'?'#eff6ff':'#f4f0ff',stroke:n.kind==='kafka'?'#6386c7':'#8b70ba',rx:pairs.value?nodeHeight()/2:8,ry:pairs.value?nodeHeight()/2:8},label:{text:layered.value?middleEllipsis(name(n.id),18):name(n.id),refX:'50%',refY:pairs.value?'50%':'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:pairs.value?14:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:meta(n.id,n.kind,n.linkId),refX:'50%',refY:'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
+   attrs:{title:{text:name(n.id)},badge:badge(n.id),body:{...nodeBody(n.id,n.kind),rx:pairs.value?nodeHeight()/2:8,ry:pairs.value?nodeHeight()/2:8},label:{text:layered.value?middleEllipsis(name(n.id),18):name(n.id),refX:'50%',refY:pairs.value?(unregistered(n.id)?'40%':'50%'):'60%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:pairs.value?14:16,fontWeight:500,fontFamily:'Inter, "Microsoft YaHei", sans-serif',fill:'#25304a',textWrap:{width:nodeWidth()-20,height:38,ellipsis:true}},meta:{text:meta(n.id,n.kind,n.linkId),refX:'50%',refY:pairs.value&&unregistered(n.id)?'74%':'23%',textAnchor:'middle',textVerticalAnchor:'middle',fontSize:11,fill:'#718099'}},data:{kind:n.kind,linkId:n.linkId}})
   nodes.set(n.id,cell);cells.push(cell)
  }
  for(const edge of presentation.value.edges){
@@ -174,8 +178,9 @@ onMounted(()=>{
 })
 watch(structure,refreshLayout)
 watch(()=>props.positions,syncPositions)
-watch([()=>props.snapshot,()=>props.registrations,()=>props.nodeHints],()=>{
- for(const n of presentation.value.nodes){nodes.get(n.id)?.attr('label/text',layered.value?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',meta(n.id,n.kind,n.linkId))}
+watch([()=>props.snapshot,()=>props.registrations,()=>props.nodeHints,()=>props.endpointMarks],()=>{
+ for(const n of presentation.value.nodes){const cell=nodes.get(n.id);cell?.attr('badge',badge(n.id));cell?.attr('body',{...nodeBody(n.id,n.kind),strokeDasharray:unregistered(n.id)?'5 3':null})
+nodes.get(n.id)?.attr('label/text',layered.value?middleEllipsis(name(n.id),18):name(n.id));nodes.get(n.id)?.attr('title/text',name(n.id));nodes.get(n.id)?.attr('meta/text',meta(n.id,n.kind,n.linkId))}
  for(const edge of presentation.value.edges){edges.get(edge.id)?.setData(edge);edges.get(edge.id)?.attr('line/strokeDasharray',dash(edge))}
  overlays()
 })
