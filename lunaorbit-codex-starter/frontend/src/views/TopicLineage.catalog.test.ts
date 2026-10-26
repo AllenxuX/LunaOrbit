@@ -59,3 +59,28 @@ describe('Topic 链路 · 先选别名再选 Topic',()=>{
   wrapper.unmount()
  })
 })
+
+describe('auto endpoints take part in sync candidates',()=>{
+ it('a readable LAB alias does not claim "未找到参与同步的 Topic" for a synced topic',async()=>{
+  const lab=[{id:'auto:src',source:'auto',aliases:['LAB-SRC-ZX'],members:[],addresses:['lab-src.kafka.lab:9092'],resolved:['10.0.0.1:9092'],access:'readable',read_via:'auto',lineage_id:'endpoint-src'},
+   {id:'auto:mid',source:'auto',aliases:['LAB-MID-ZX'],members:[],addresses:['lab-mid.kafka.lab:9092'],resolved:[],access:'readable',read_via:'auto',lineage_id:'endpoint-mid'}]
+  const link={id:'L1',workload_name:'mm2-lab',enabled:true,topics_raw:'derivatives.*|yd.*',topics_exclude_raw:'',policy:'org.apache.kafka.connect.mirror.IdentityReplicationPolicy',semantics_known:true,stale:false,
+   source:{alias:'LAB-SRC-ZX',status:'unknown',candidate_ids:[],bootstrap_addresses:['lab-src.kafka.lab:9092']},target:{alias:'LAB-MID-ZX',status:'unknown',candidate_ids:[],bootstrap_addresses:['lab-mid.kafka.lab:9092']}}
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+   const json=(b:unknown)=>({ok:true,status:200,json:async()=>b})
+   if(url.includes('/discovery/catalog/auto%3Asrc/topics'))return json({items:[{name:'derivatives.test1',partitions:1},{name:'probe.other',partitions:1}],total:2,page:1,page_size:20})
+   if(url.endsWith('/discovery/catalog'))return json({items:lab})
+   if(url.includes('/snapshot'))return json({snapshot:{stale:false,observed_at:'',links:[link]}})
+   if(url.includes('/discovery/scopes'))return json({items:[{id:'lab',synthetic:false}]})
+   if(url.includes('/kafka/clusters'))return json({items:[],total:0})
+   return json({})
+  }))
+  const {wrapper}=await page()
+  await wrapper.get('select[aria-label="集群别名"]').setValue('endpoint-src');for(let i=0;i<5;i++)await flushPromises()
+  await wrapper.get('input[aria-label="Topic"]').setValue('derivatives.test1');await flushPromises()
+  expect(wrapper.find('[data-no-candidate]').exists()).toBe(false)
+  const opts=wrapper.findAll('#lineage-topics option').map(o=>[o.attributes('value'),o.attributes('label')])
+  expect(opts).toContainEqual(['derivatives.test1','同步配置覆盖 1 个集群'])
+  wrapper.unmount()
+ })
+})

@@ -5,7 +5,7 @@ import { registryRequest, type ClusterPage } from '../api/registry'
 import { kafkaList, type Topic } from '../api/kafkaops'
 import { readLineage, observedTime, evidenceLabel, kindLabel, resourcePath, type Direction, type Lineage, type LineageNode } from '../api/topic-lineage'
 import { cacheKey, classifyCandidate, syncCoverage, classifyLineage, collapseLineage, conditionsChanged, unregisteredBreaks, pickDisplayGraph, resolveSources, type NodeState, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
-import { readCatalog, readTopics as readCatalogTopics, readable, type CatalogEndpoint } from '../api/catalog'
+import { readCatalog, readTopics as readCatalogTopics, readable, withCatalogEnds, type CatalogEndpoint } from '../api/catalog'
 import { refreshMessage, type RefreshMessage, type RefreshSnapshot } from '../topology/refresh-result'
 import TopicLineageCanvas from '../components/TopicLineageCanvas.vue'
 import { fullName } from '../topology/scopes'
@@ -33,10 +33,11 @@ function scopedLabel(e:ViewEdge){const r=e.linkId?ruleById.value.get(e.linkId):u
 const mm2Path=(linkId:string)=>{const scope=ruleById.value.get(linkId)?.scope_id;return scope?`/topology/${encodeURIComponent(scope)}/links/${encodeURIComponent(linkId)}`:'/topology?view=mm2'}
 const view=computed(()=>{if(!display.value.graph)return undefined;const v=collapseLineage(display.value.graph,{showConsumers:showConsumers.value}),ids=new Set(unparsedIssues.value.map(i=>i.link_id));return {...v,edges:v.edges.map(e=>{const label=scopedLabel(e);return e.linkId&&ids.has(e.linkId)?{...e,label:`${label} · 待确认`}:{...e,label}})}})
 const showAllTopics=ref(false)
-const candidates=computed(()=>topics.value.map(name=>{const links=discovery.value?.links;if(!links)return {name,kind:'syncing',label:'同步配置覆盖 —'};const c=classifyCandidate(cluster.value,name,links);if(c.kind!=='syncing')return {name,kind:c.kind,label:c.tag};const n=syncCoverage(cluster.value,name,links);return {name,kind:c.kind,label:n===undefined?'同步配置覆盖 —':n===0?'无下游同步配置':`同步配置覆盖 ${n} 个集群`}}))
+const ruleLinks=computed(()=>discovery.value?withCatalogEnds(discovery.value.links,catalog.value):undefined)
+const candidates=computed(()=>topics.value.map(name=>{const links=ruleLinks.value;if(!links)return {name,kind:'syncing',label:'同步配置覆盖 —'};const c=classifyCandidate(cluster.value,name,links);if(c.kind!=='syncing')return {name,kind:c.kind,label:c.tag};const n=syncCoverage(cluster.value,name,links);return {name,kind:c.kind,label:n===undefined?'同步配置覆盖 —':n===0?'无下游同步配置':`同步配置覆盖 ${n} 个集群`}}))
 const shownCandidates=computed(()=>candidates.value.filter(c=>showAllTopics.value||c.kind==='syncing'))
 const noCandidate=computed(()=>!configOnly.value&&!showAllTopics.value&&!!cluster.value&&!!topic.value.trim()&&topicState.value!=='loading'&&!shownCandidates.value.some(c=>c.name.includes(topic.value.trim())))
-const reasons=computed<Reason[]>(()=>data.value&&applied.value&&discovery.value?classifyLineage({...applied.value,result:data.value,links:discovery.value.links,snapshotStale:discovery.value.stale}):[])
+const reasons=computed<Reason[]>(()=>data.value&&applied.value&&discovery.value?classifyLineage({...applied.value,result:data.value,links:ruleLinks.value!,snapshotStale:discovery.value.stale}):[])
 const rootNode=computed(()=>display.value.graph?.nodes.find(n=>n.id===display.value.graph!.root_id))
 const nodeById=(id:string)=>display.value.graph?.nodes.find(n=>n.id===id)
 const nodeName=(id:string)=>{const n=nodeById(id);return n?`${n.cluster_name??'集群未知'} / ${n.topic??n.label}`:'资源未知'}
@@ -44,7 +45,7 @@ const selectedPath=computed(()=>{const n=selectedNode.value;if(!n)return undefin
 const canQuery=computed(()=>!!cluster.value&&!!topic.value.trim()&&topicState.value!=='missing'&&!busy.value)
 const edgeFreshness=computed(()=>discovery.value?.stale||display.value.graph!==data.value?'数据已过期':'当前')
 const states=shallowRef<Record<string,NodeState>>({}),summary=ref('')
-const canvasStates=computed(()=>{const pending=new Set(unparsedIssues.value.map(i=>i.cluster_id).filter(Boolean)),out:Record<string,NodeState>={...states.value};for(const n of data.value?.nodes??[])if(n.cluster_id&&pending.has(n.cluster_id)&&out[n.id])out[n.id]={...out[n.id]!,text:out[n.id]!.text?`${out[n.id]!.text} · 待确认`:'待确认'};const breaks=data.value&&discovery.value?unregisteredBreaks(data.value,discovery.value.links):[];for(const n of data.value?.nodes??[])for(const b of breaks)if(n.kind==='topic'&&n.cluster_id===b.clusterId){const prev=out[n.id]??{kind:'exists' as const,text:''},note=`下一跳 ${b.alias} 为自动发现端点，尚未合并登记信息`;if(!prev.text.includes(note))out[n.id]={...prev,text:prev.text?`${prev.text} · ${note}`:note}};return out})
+const canvasStates=computed(()=>{const pending=new Set(unparsedIssues.value.map(i=>i.cluster_id).filter(Boolean)),out:Record<string,NodeState>={...states.value};for(const n of data.value?.nodes??[])if(n.cluster_id&&pending.has(n.cluster_id)&&out[n.id])out[n.id]={...out[n.id]!,text:out[n.id]!.text?`${out[n.id]!.text} · 待确认`:'待确认'};const breaks=data.value&&discovery.value?unregisteredBreaks(data.value,ruleLinks.value!):[];for(const n of data.value?.nodes??[])for(const b of breaks)if(n.kind==='topic'&&n.cluster_id===b.clusterId){const prev=out[n.id]??{kind:'exists' as const,text:''},note=`下一跳 ${b.alias} 为自动发现端点，尚未合并登记信息`;if(!prev.text.includes(note))out[n.id]={...prev,text:prev.text?`${prev.text} · ${note}`:note}};return out})
 function existence(n:LineageNode){if(n.existence_note&&n.exists==null)return n.existence_note;const st=states.value[n.id];return !st?(n.exists===true?'已存在':'Topic 存在性未确认'):st.kind==='exists'?'已存在':st.text}
 async function loadTopics(){
  const token=++catalogEpoch;topics.value=[];catalogError.value='';if(!cluster.value){topicState.value='unknown';return}

@@ -95,3 +95,18 @@ export function errorText(error: unknown) {
   const code = error instanceof CatalogError ? error.code : ''
   return ({ CREDENTIALS_OFF: '凭据未开启或不可读，无法读取该集群', USE_REGISTRATION: '自动发现读取失败，请从登记的集群查看', ENDPOINT_UNREADABLE: '只读查询失败，请稍后刷新', NOT_FOUND: '该集群已不在发现结果中' } as Record<string, string>)[code] ?? '读取失败，请稍后刷新'
 }
+
+/**
+ * Rule links whose ends are not confirmed to a registration are re-labelled with the catalog
+ * lineage id of the endpoint that owns their MM2 addresses, so auto endpoints take part in
+ * candidate and coverage checks exactly like registered clusters (view-only, no binding).
+ */
+export function withCatalogEnds<L extends { source: End; target: End }, End extends { registration_id?: string; status: string; bootstrap_addresses?: string[] | null }>(links: L[], rows: CatalogEndpoint[]): L[] {
+  if (!rows.length) return links
+  const end = (e: End): End => {
+    if (e.status === 'confirmed' && e.registration_id) return e
+    const row = catalogFor(rows, { addresses: e.bootstrap_addresses ?? [] })
+    return row?.lineage_id ? { ...e, registration_id: row.lineage_id, status: 'confirmed' } : e
+  }
+  return links.map(l => ({ ...l, source: end(l.source), target: end(l.target) }))
+}
