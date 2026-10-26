@@ -1,7 +1,7 @@
 import type { Presentation } from '../topology/presentation'
 export type Evidence='observed'|'configured'|'manual'|'historical'|'unknown'
 export type Direction='upstream'|'downstream'|'both'
-export interface LineageNode {id:string;kind:'topic'|'mm2'|'application'|'consumer_group'|'unresolved';label:string;cluster_id?:string;cluster_name?:string;topic?:string;group?:string;location?:string;owner?:string;application_id?:string;link_id?:string;exists?:boolean|null;evidence?:Evidence;observed_at?:string}
+export interface LineageNode {id:string;kind:'topic'|'mm2'|'application'|'consumer_group'|'unresolved';label:string;cluster_id?:string;cluster_name?:string;topic?:string;group?:string;location?:string;owner?:string;application_id?:string;link_id?:string;exists?:boolean|null;existence_note?:string;evidence?:Evidence;observed_at?:string}
 export interface LineageEdge {account?:string;client_id?:string;id:string;source:string;target:string;kind:string;evidence:Evidence;observed_at?:string;scope_id?:string;link_id?:string;policy?:string;rule?:string}
 export interface Lineage {root_id:string;observed_at:string;nodes:LineageNode[];edges:LineageEdge[];issues:{code:string;message:string;cluster_id?:string;link_id?:string}[];truncated:boolean;depth:number}
 export function evidenceLabel(value?:string){return ({observed:'运行观测',configured:'配置关系（未验证）',manual:'人工登记（非实际观测）',historical:'历史消费位点',unknown:'证据未知'} as Record<string,string>)[value??'unknown']??'证据未知'}

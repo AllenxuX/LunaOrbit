@@ -5,6 +5,7 @@ import { registryRequest, type ClusterPage } from '../api/registry'
 import { kafkaList, type Topic } from '../api/kafkaops'
 import { readLineage, observedTime, evidenceLabel, kindLabel, resourcePath, type Direction, type Lineage, type LineageNode } from '../api/topic-lineage'
 import { cacheKey, classifyCandidate, syncCoverage, classifyLineage, collapseLineage, conditionsChanged, unregisteredBreaks, pickDisplayGraph, resolveSources, type NodeState, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
+import { readCatalog, readTopics as readCatalogTopics, readable, type CatalogEndpoint } from '../api/catalog'
 import TopicLineageCanvas from '../components/TopicLineageCanvas.vue'
 import { fullName } from '../topology/scopes'
 type ViewEdge=LineageView['edges'][number]
@@ -12,6 +13,11 @@ interface Discovery {stale:boolean;observedAt:string;links:RuleLink[]}
 const route=useRoute(),router=useRouter()
 const cluster=ref(''),topic=ref(''),direction=ref<Direction>('both'),depth=ref(2),showConsumers=ref(false)
 const clusters=shallowRef<ClusterPage['items']>([]),topics=ref<string[]>([]),topicState=ref<'unknown'|'loading'|'exists'|'missing'|'unreadable'>('unknown'),catalogError=ref('')
+const catalog=shallowRef<CatalogEndpoint[]>([])
+const reasonText:Record<string,string>={timeout:'连接超时',refused:'连接被拒绝',blocked:'出站未允许',tls:'TLS 失败',unresolvable:'地址无法解析',auth:'认证失败',authorization:'授权不足'}
+function aliasOption(r:CatalogEndpoint){const addr=(r.resolved[0]??r.addresses[0]??'地址未解析');const name=r.aliases.join(' / ')||r.display_name||'—';if(r.source==='manual')return `${r.display_name||name} · 手工补充 · ${addr}`;const st=readable(r)?'可读':r.access==='not_connected'?'未连接':`不可读（${reasonText[r.access_reason??'']??(r.access==='address_unresolvable'?'地址无法解析':'凭据未开启或不可读')}）`;return `${name} · ${addr} · ${st}`}
+const selectedRow=computed(()=>catalog.value.find(r=>r.lineage_id===cluster.value))
+const configOnly=computed(()=>!!selectedRow.value&&selectedRow.value.read_via==='auto'&&!readable(selectedRow.value))
 const data=shallowRef<Lineage>(),cached=shallowRef<Lineage>(),discovery=shallowRef<Discovery>(),applied=shallowRef<Conditions>()
 const selectedNode=shallowRef<LineageNode>(),selectedEdge=shallowRef<ViewEdge>(),busy=ref(false),error=ref(''),notFound=ref(false),refreshing=ref(false)
 let request:InstanceType<typeof globalThis.AbortController>|undefined,epoch=0,catalogEpoch=0,timer:ReturnType<typeof globalThis.setTimeout>|undefined
@@ -28,20 +34,28 @@ const view=computed(()=>{if(!display.value.graph)return undefined;const v=collap
 const showAllTopics=ref(false)
 const candidates=computed(()=>topics.value.map(name=>{const links=discovery.value?.links;if(!links)return {name,kind:'syncing',label:'同步配置覆盖 —'};const c=classifyCandidate(cluster.value,name,links);if(c.kind!=='syncing')return {name,kind:c.kind,label:c.tag};const n=syncCoverage(cluster.value,name,links);return {name,kind:c.kind,label:n===undefined?'同步配置覆盖 —':n===0?'无下游同步配置':`同步配置覆盖 ${n} 个集群`}}))
 const shownCandidates=computed(()=>candidates.value.filter(c=>showAllTopics.value||c.kind==='syncing'))
-const noCandidate=computed(()=>!showAllTopics.value&&!!cluster.value&&!!topic.value.trim()&&topicState.value!=='loading'&&!shownCandidates.value.some(c=>c.name.includes(topic.value.trim())))
+const noCandidate=computed(()=>!configOnly.value&&!showAllTopics.value&&!!cluster.value&&!!topic.value.trim()&&topicState.value!=='loading'&&!shownCandidates.value.some(c=>c.name.includes(topic.value.trim())))
 const reasons=computed<Reason[]>(()=>data.value&&applied.value&&discovery.value?classifyLineage({...applied.value,result:data.value,links:discovery.value.links,snapshotStale:discovery.value.stale}):[])
 const rootNode=computed(()=>display.value.graph?.nodes.find(n=>n.id===display.value.graph!.root_id))
 const nodeById=(id:string)=>display.value.graph?.nodes.find(n=>n.id===id)
 const nodeName=(id:string)=>{const n=nodeById(id);return n?`${n.cluster_name??'集群未知'} / ${n.topic??n.label}`:'资源未知'}
-const selectedPath=computed(()=>selectedNode.value?resourcePath(selectedNode.value):undefined)
+const selectedPath=computed(()=>{const n=selectedNode.value;if(!n)return undefined;const row=catalog.value.find(r=>r.lineage_id===n.cluster_id);if(row&&n.kind==='topic'&&row.read_via==='auto')return `/endpoints/${encodeURIComponent(row.id)}/topics/${encodeURIComponent(n.topic??n.label)}`;return resourcePath(n)})
 const canQuery=computed(()=>!!cluster.value&&!!topic.value.trim()&&topicState.value!=='missing'&&!busy.value)
 const edgeFreshness=computed(()=>discovery.value?.stale||display.value.graph!==data.value?'数据已过期':'当前')
 const states=shallowRef<Record<string,NodeState>>({}),summary=ref('')
 const canvasStates=computed(()=>{const pending=new Set(unparsedIssues.value.map(i=>i.cluster_id).filter(Boolean)),out:Record<string,NodeState>={...states.value};for(const n of data.value?.nodes??[])if(n.cluster_id&&pending.has(n.cluster_id)&&out[n.id])out[n.id]={...out[n.id]!,text:out[n.id]!.text?`${out[n.id]!.text} · 待确认`:'待确认'};const breaks=data.value&&discovery.value?unregisteredBreaks(data.value,discovery.value.links):[];for(const n of data.value?.nodes??[])for(const b of breaks)if(n.kind==='topic'&&n.cluster_id===b.clusterId){const prev=out[n.id]??{kind:'exists' as const,text:''},note=`下一跳 ${b.alias} 未登记，链路在此中断`;if(!prev.text.includes(note))out[n.id]={...prev,text:prev.text?`${prev.text} · ${note}`:note}};return out})
-function existence(n:LineageNode){const st=states.value[n.id];return !st?(n.exists===true?'已存在':'Topic 存在性未确认'):st.kind==='exists'?'已存在':st.text}
+function existence(n:LineageNode){if(n.existence_note&&n.exists==null)return n.existence_note;const st=states.value[n.id];return !st?(n.exists===true?'已存在':'Topic 存在性未确认'):st.kind==='exists'?'已存在':st.text}
 async function loadTopics(){
  const token=++catalogEpoch;topics.value=[];catalogError.value='';if(!cluster.value){topicState.value='unknown';return}
  topicState.value='loading'
+ const row=selectedRow.value
+ if(row&&row.read_via==='auto'){
+  if(!readable(row)){topicState.value='unreadable';catalogError.value='无法枚举 Topic；仅沿配置关系查询，Topic 是否存在无法确认';return}
+  try{const names:string[]=[];for(let page=1;page<=50;page++){const r=await readCatalogTopics(row.id,'',page);if(token!==catalogEpoch)return;names.push(...r.items.map(t=>t.name));if(names.length>=r.total||!r.items.length)break}
+   topics.value=[...new Set(names)].sort();topicState.value='unknown';checkTopic()}
+  catch{if(token===catalogEpoch){topicState.value='unreadable';catalogError.value='Topic 列表暂不可读取，无法确认 Topic 是否存在'}}
+  return
+ }
  try{const names:string[]=[];for(let page=1;page<=100;page++){const result=await kafkaList<Topic>(cluster.value,'topics',{page,pageSize:100});if(token!==catalogEpoch)return;names.push(...result.items.map(n=>n.name));if(names.length>=result.total||!result.items.length)break}
   topics.value=[...new Set(names)].sort();topicState.value='unknown';checkTopic()}
  catch{if(token===catalogEpoch){topicState.value='unreadable';catalogError.value='Topic 列表暂不可读取，无法确认 Topic 是否存在'}}
@@ -91,17 +105,18 @@ function act(a:Reason['actions'][number]){if(a.action==='refresh')void refreshDi
 function syncQuery(){cluster.value=String(route.query.cluster_id??'');topic.value=String(route.query.topic??'');const d=Number(route.query.depth??2);depth.value=[1,2,3,4].includes(d)?d:2;direction.value=['upstream','downstream','both'].includes(String(route.query.direction))?route.query.direction as Direction:'both';void load()}
 function asRoot(n:LineageNode){if(n.cluster_id)void router.push({path:'/topic-lineage',query:{cluster_id:n.cluster_id,topic:n.topic??n.label,depth:String(depth.value),direction:direction.value}})}
 watch(()=>route.fullPath,syncQuery,{immediate:true})
-watch(cluster,()=>void loadTopics(),{immediate:true})
+watch(cluster,(next,prev)=>{if(catalog.value.length&&prev!==undefined&&prev!==next&&prev!=='')topic.value='';void loadTopics()},{immediate:true})
 watch(topic,checkTopic)
-onMounted(async()=>{void readDiscovery().then(d=>{if(!discovery.value)discovery.value=d}).catch(()=>{});try{const result=await registryRequest<ClusterPage>('/kafka/clusters?page=1&page_size=100');clusters.value=result.items}catch{catalogError.value='集群列表加载失败，请刷新重试'}})
+onMounted(async()=>{void readCatalog().then(rows=>{catalog.value=rows;if(rows.length&&cluster.value)void loadTopics()}).catch(()=>{});void readDiscovery().then(d=>{if(!discovery.value)discovery.value=d}).catch(()=>{});try{const result=await registryRequest<ClusterPage>('/kafka/clusters?page=1&page_size=100');clusters.value=result.items}catch{catalogError.value='集群列表加载失败，请刷新重试'}})
 onBeforeUnmount(()=>{++epoch;++catalogEpoch;request?.abort();globalThis.clearTimeout(timer)})
 </script>
 <template>
   <section class="lineage-page registry">
     <header class="page-header"><div><h1>Topic 链路</h1><p>数据视角：从一个 Topic 追踪跨集群的同步配置。连线是配置关系，不代表消息已到达。</p></div><router-link to="/applications">登记应用关系</router-link></header>
     <form class="lineage-query panel" @submit.prevent="query">
-      <label>集群<select v-model="cluster" aria-label="集群" required><option value="" disabled>选择集群</option><option v-for="item in clusters" :key="item.id" :value="item.id">{{ item.display_name }}</option></select></label>
-      <label class="topic-input">Topic<input v-model="topic" aria-label="Topic" list="lineage-topics" placeholder="从所选集群的 Topic 中搜索" autocomplete="off" required><datalist id="lineage-topics"><option v-for="c in shownCandidates" :key="c.name" :value="c.name" :label="c.label" /></datalist></label>
+      <label v-if="catalog.length">集群别名<select v-model="cluster" aria-label="集群别名" required><option value="" disabled>请选择别名</option><option v-for="r in catalog" :key="r.id" :value="r.lineage_id||r.registration_id">{{ aliasOption(r) }}</option></select></label>
+      <label v-else>集群<select v-model="cluster" aria-label="集群" required><option value="" disabled>选择集群</option><option v-for="item in clusters" :key="item.id" :value="item.id">{{ item.display_name }}</option></select></label>
+      <label class="topic-input">Topic<input v-model="topic" aria-label="Topic" list="lineage-topics" :disabled="catalog.length>0&&!cluster" :placeholder="catalog.length&&!cluster?'先选择别名':configOnly?'配置推导 / 手工输入 Topic':'从所选集群的 Topic 中搜索'" autocomplete="off" required><datalist id="lineage-topics"><option v-for="c in shownCandidates" :key="c.name" :value="c.name" :label="c.label" /></datalist></label>
       <label>方向<select v-model="direction" aria-label="方向"><option value="both">上下游</option><option value="upstream">上游</option><option value="downstream">下游</option></select></label>
       <label>深度（跨集群跳数）<select v-model.number="depth" aria-label="深度"><option v-for="value in 4" :key="value" :value="value">{{ value }} 跳</option></select></label>
       <label class="toggle"><input v-model="showAllTopics" data-show-all-topics type="checkbox"> 显示全部 Topic</label>

@@ -261,3 +261,18 @@ describe('scope-aware MM2 links (LUNA-37)',()=>{
   expect(JSON.stringify(r)).not.toContain('readonly-lab')
  })
 })
+
+describe('unreadable endpoints in a lineage',()=>{
+ it('continues through an endpoint whose topic existence cannot be confirmed',async()=>{
+  const {resolveSources}=await import('./lineage-model')
+  const n=(id:string,exists:boolean|null,note?:string)=>({id,kind:'topic' as const,label:'orders',cluster_id:id,cluster_name:id,topic:'orders',exists,...(note?{existence_note:note}:{})})
+  const m=(id:string)=>({id,kind:'mm2' as const,label:id,link_id:id,exists:null})
+  const e=(id:string,s:string,t:string)=>({id,source:s,target:t,kind:'replicates_to',evidence:'configured' as const})
+  const down={root_id:'a',observed_at:'',depth:4,truncated:false,issues:[],nodes:[n('a',true),m('m1'),n('x',null,'Topic 是否存在无法确认'),m('m2'),n('c',true)],edges:[e('1','a','m1'),e('2','m1','x'),e('3','x','m2'),e('4','m2','c')]}
+  const r=resolveSources({direction:'downstream',down})
+  expect(r.graph.nodes.map(x=>x.id)).toEqual(['a','m1','x','m2','c'])
+  expect(r.states.x).toEqual({kind:'pending',text:'Topic 是否存在无法确认'})
+  const rootUnknown=resolveSources({direction:'downstream',down:{...down,root_id:'x'}})
+  expect(rootUnknown.rootMissing).toBe(false)
+ })
+})

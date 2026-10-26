@@ -167,7 +167,7 @@ function pairsOf(g:Lineage):Pair[] {
  */
 export function resolveSources(input:{direction:Direction;up?:Lineage;down?:Lineage}):{graph:Lineage;states:Record<string,NodeState>;summary:string;rootMissing:boolean;sources:string[]} {
  const base=input.up&&input.down?mergeDirections(input.up,input.down):(input.up??input.down)!
- const raw=new Map(base.nodes.map(n=>[n.id,n])),root=base.root_id,has=(id:string)=>raw.get(id)?.exists===true
+ const raw=new Map(base.nodes.map(n=>[n.id,n])),root=base.root_id,unknown=(id:string)=>!!raw.get(id)?.existence_note&&raw.get(id)?.exists==null,has=(id:string)=>raw.get(id)?.exists===true||unknown(id)
  const allPairs=[...(input.up?pairsOf(input.up):[]),...(input.down?pairsOf(input.down):[])]
  if(!has(root))return {graph:{...base,nodes:[],edges:[]},states:{},summary:'',rootMissing:true,sources:[]}
  const keep=new Set([root]),keepM=new Set<string>()
@@ -178,6 +178,7 @@ export function resolveSources(input:{direction:Direction;up?:Lineage;down?:Line
  const name=(id:string)=>raw.get(id)?.cluster_name??raw.get(id)?.cluster_id??'未知集群'
  const states:Record<string,NodeState>={}
  for(const id of keep){
+  if(unknown(id)){states[id]={kind:'pending',text:raw.get(id)!.existence_note!};continue}
   if(!has(id)){states[id]={kind:'pending',text:'已配置同步，目标 Topic 尚未出现'};continue}
   const ps=preds(id);if(ps.some(has)){states[id]={kind:'exists',text:''};continue}
   const broken=ps.filter(hasExistingAncestor)

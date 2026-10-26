@@ -20,6 +20,7 @@ export const router = createRouter({
     { path: '/access-control', component: () => import('./views/PlatformAccess.vue') },
     { path: '/security', component: () => import('./views/Security.vue') },
     { path: '/kafka/clusters/:id/security', component: () => import('./views/Security.vue'), props:true },
+    { path: '/endpoints/:id/topics/:topicName', component: () => import('./views/CatalogTopic.vue'), props: true },
     { path: '/topic-lineage', component: () => import('./views/TopicLineage.vue') },
     { path: '/topology', component: () => import('./views/Topology.vue') },
     { path: '/applications', component: () => import('./views/InformationApplications.vue') },

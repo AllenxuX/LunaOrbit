@@ -11,6 +11,8 @@ import { ensureSession,registryRequest,type Cluster,type ClusterPage } from '../
 import { readSnapshot,scopePath,viewPath,type Snapshot,type View,type Position,type Job,type ScopeInfo,type ScopeEntry } from '../api/topology'
 import ScopeBar from '../components/ScopeBar.vue'
 import EndpointExplain from '../components/EndpointExplain.vue'
+import ClusterDrawer from '../components/ClusterDrawer.vue'
+import { catalogFor,readCatalog,type CatalogEndpoint } from '../api/catalog'
 import { addressesOverlap,endpointMarks,endpointStates,loadManualReview,manualReviewKey,registerHref,sanitizeAddress,saveManualReview,unregisteredSummary,type EndpointState } from '../topology/unregistered'
 import { filterByScope,groupByScope,mergeEntries,needsScopeBar,scopeSummary,withScopeNames } from '../topology/scopes'
 import { filterGraph,mappingLabel,mappingName,nodeIdentity,unknown } from '../topology/model'
@@ -165,6 +167,10 @@ const endpointPanel=computed(()=>{
  const m=link?(link.target.alias===s.alias&&!endpointOf(link.source)?link.target:link.source.alias===s.alias?link.source:link.target):undefined
  return {endpoint:s,addresses:m?mm2Addresses(m):[],linkId:link?.id}
 })
+const catalog=shallowRef<CatalogEndpoint[]>([])
+async function loadCatalog(){try{catalog.value=await readCatalog()}catch{catalog.value=[]}}
+/** Catalog row for the selected node: registration id first, then the MM2 addresses of an unregistered end. */
+const drawerRow=computed(()=>{if(!selectedNode.value||!catalog.value.length)return undefined;return catalogFor(catalog.value,{registrationId:selectedNode.value,addresses:endpointPanel.value?.addresses})})
 const manual=ref<Record<string,{id:string;ok:boolean}>>({}),manualOpen=ref('')
 watch(detail,d=>{manual.value=d?Object.fromEntries([d.source,d.target].map(m=>[m.alias,{id:'',ok:false}])):{}},{immediate:true})
 function addressMismatch(m:MappingT){const id=manual.value[m.alias]?.id,a=mm2Addresses(m);return !!id&&a.length>0&&!addressesOverlap(a,registrationAddresses(id))}
@@ -249,6 +255,7 @@ async function reload() {
 }
 onMounted(async()=>{
  globalThis.document.addEventListener('fullscreenchange',onFullscreen)
+ if(runtime.value?.information_mode)void loadCatalog()
  try{await ensureSession();if(disposed)return;const data=await registryRequest<{items:ScopeInfo[]}>('/discovery/scopes');if(disposed)return;scopes.value=data.items;scope.value=data.items.find(item=>item.id===route?.query.scope)?.id??data.items[0]?.id??'';if(scope.value)await reload();else error.value='暂无可用的发现范围'}
  catch(e){if(!disposed)error.value=e instanceof ApiError&&e.status===404?'发现接口未启用，请使用 discovery-backend 启动。':message(e)}
 })
@@ -335,6 +342,7 @@ async function confirmMapping(alias:string):Promise<boolean>{
         <div v-if="selectedNode" class="focus-controls"><strong>{{ focusName }}</strong><select v-model="focusDirection" data-focus-direction aria-label="聚焦范围"><option value="neighbors">直接关联</option><option value="upstream">全部上游</option><option value="downstream">全部下游</option></select><button data-clear-focus @click="clearSelection">显示全部</button></div>
         <MM2Topology :key="scope" :snapshot="visible" :registrations="clusters" :selected-id="selected" :focus-active="!!selectedNode" :focused-link-ids="focusedLinks" :node-hints="locationHints" @select="selectLink" @select-node="selectNode" />
       </section>
+      <ClusterDrawer v-if="drawerRow" :endpoint="drawerRow" @close="clearSelection" />
       <section v-if="endpointPanel" data-endpoint-panel class="panel evidence-panel" aria-label="未登记端点"><button class="close-detail" @click="clearSelection">关闭</button><h2>MM2 端点 · {{ endpointPanel.endpoint.state==='unregistered'?'未登记':'待确认' }}</h2><EndpointExplain :endpoint="endpointPanel.endpoint" :addresses="endpointPanel.addresses" @manual="openManual(endpointPanel.linkId,endpointPanel.endpoint.alias)" @view="endpointPanel.linkId&&selectLink(endpointPanel.linkId)" /></section>
       <section v-if="relationPanel" data-relation-panel class="panel evidence-panel relation-panel" aria-label="同步关系详情"><button class="close-detail" @click="routeLinkIds=[]">关闭</button><h2 data-relation-title>{{ relationPanel.title }}</h2><p><span v-if="relationPanel.enabled>1" class="pair-multiplier">×{{ relationPanel.enabled }}</span> <span data-relation-counts>启用 MM2 {{ relationPanel.enabled }} · 禁用 {{ relationPanel.disabled }}</span></p><p v-if="relationPanel.worstBy" class="helper-text" data-relation-worst>线型取最差启用成员：{{ relationPanel.worstBy }}</p><template v-for="e in relationEndpoints" :key="e.alias"><EndpointExplain :endpoint="e" :addresses="e.addresses" @manual="openManual(e.linkId,e.alias)" @view="selectLink(e.linkId)" /></template><ul class="relation-members"><li v-for="m in relationPanel.members" :key="m.id" data-relation-link><strong data-relation-name :title="m.name">{{ m.name }}</strong><dl><dt>证据类型</dt><dd data-relation-evidence-value>{{ m.evidence }}</dd><dt>启停</dt><dd data-relation-enablement>{{ m.enablement }}</dd><dt>运行状态</dt><dd data-relation-status>{{ m.status }}</dd><dt>新鲜度</dt><dd data-relation-freshness>{{ m.freshness }}</dd><dt>最后采集</dt><dd>{{ observedTime(m.observedAt) }}</dd></dl><span data-relation-evidence class="sr-only">证据类型：{{ m.evidence }}</span><em v-if="!m.counted" data-relation-uncounted>未计入 ×N</em></li></ul></section>
       <component :is="mode==='tasks'?'section':'details'" v-if="mode!=='relations'" class="panel task-panel" :open="false" aria-label="同步任务">
