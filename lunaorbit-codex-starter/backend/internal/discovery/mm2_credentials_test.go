@@ -42,12 +42,14 @@ func (saslSource) Collect(_ context.Context, scope resource.Scope) (resource.Col
 	return col, nil
 }
 
+var credFactory SourceFactory = func(resource.Scope, string) (collector.Source, func(), error) {
+	return saslSource{}, func() {}, nil
+}
+
 func credService(t *testing.T, creds *mm2auth.Store) (*Service, *MemoryStore) {
 	t.Helper()
 	store := NewMemoryStore()
-	s := NewService(store, nil, func(resource.Scope, string) (collector.Source, func(), error) {
-		return saslSource{}, func() {}, nil
-	}, func(context.Context, string) ([]Registration, error) { return nil, nil })
+	s := NewService(store, nil, credFactory, func(context.Context, string) ([]Registration, error) { return nil, nil })
 	if creds != nil {
 		s.EnableMM2Credentials(creds)
 	}

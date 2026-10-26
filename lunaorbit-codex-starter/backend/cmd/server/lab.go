@@ -145,6 +145,10 @@ func newLabDiscovery(store discovery.Store, lookup discovery.RegistrationLookup,
 			return nil, err
 		}
 	}
+	if _, err := configureMM2Credentials(service, env); err != nil {
+		service.Close()
+		return nil, err
+	}
 	return service, nil
 }
 

@@ -167,6 +167,8 @@ type Registration struct {
 	DiscoveredClusterID string
 	IdentityVerified    bool
 	Enabled             bool
+	// Business fields attached to merged auto endpoints.
+	Room, Environment string
 }
 type AliasIdentity struct {
 	ScopeID, Namespace, WorkloadUID, Alias, ClusterID string

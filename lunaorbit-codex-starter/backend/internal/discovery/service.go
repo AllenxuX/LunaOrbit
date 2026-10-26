@@ -69,6 +69,8 @@ type Service struct {
 	// mm2Creds is non-nil only when KAFKA_MM2_CREDENTIALS is on; credentials stay in memory.
 	mm2Creds  *mm2auth.Store
 	endpoints map[string][]AutoEndpoint
+	probes    map[string]ProbeResult
+	access    EndpointAccess
 }
 
 // ClusterEntry is one cluster from Kite's cluster list (name only; Kite has
@@ -446,6 +448,7 @@ func (s *Service) run(actor Actor, scope resource.Scope, scenario, key string) {
 		}
 		s.endpoints[scope.ID] = eps
 		s.scopeMu.Unlock()
+		s.probeEndpoints(ctx, eps)
 	}
 	if e != nil {
 		code = "DISCOVERY_LIMIT_OR_INVALID_INPUT"

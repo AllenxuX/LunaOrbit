@@ -51,6 +51,7 @@ func jsonBody(c *gin.Context, target any) bool {
 // Mount must be called on an already-authenticated group with Origin protection.
 func Mount(group *gin.RouterGroup, service *Service, actor func(*gin.Context) Actor) {
 	discovery := group.Group("/discovery")
+	mountCatalog(discovery, service, actor)
 	discovery.GET("/endpoints", func(c *gin.Context) {
 		c.JSON(200, gin.H{"items": service.Endpoints()})
 	})

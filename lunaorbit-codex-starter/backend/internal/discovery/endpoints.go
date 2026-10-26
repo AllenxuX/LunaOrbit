@@ -36,6 +36,8 @@ type AutoEndpoint struct {
 	Resolved         []string `json:"resolved"`
 	Access           string   `json:"access"`
 	CredentialSource string   `json:"credential_source,omitempty"`
+	// HostIPs is the MM2 Pod's hostAliases map (host -> ip), used only by the dialer.
+	HostIPs map[string]string `json:"-"`
 }
 
 // EndpointKey identifies an MM2 alias within one workload of one scope.
@@ -99,7 +101,7 @@ func extractEndpoints(col resource.Collection, creds *mm2auth.Store) []AutoEndpo
 							continue
 						}
 						seen[epKey] = true
-						ep := AutoEndpoint{Key: epKey, ScopeID: col.Scope.ID, KubeCluster: col.Scope.Cluster, Namespace: batch.Namespace, WorkloadUID: dep.Metadata.UID, WorkloadName: dep.Metadata.Name, Alias: alias, Addresses: append([]string{}, config.Bootstraps[alias]...), Resolved: []string{}}
+						ep := AutoEndpoint{Key: epKey, ScopeID: col.Scope.ID, KubeCluster: col.Scope.Cluster, Namespace: batch.Namespace, WorkloadUID: dep.Metadata.UID, WorkloadName: dep.Metadata.Name, Alias: alias, Addresses: append([]string{}, config.Bootstraps[alias]...), Resolved: []string{}, HostIPs: hosts}
 						for _, a := range ep.Addresses {
 							host, port, e := net.SplitHostPort(a)
 							if e != nil {
