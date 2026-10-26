@@ -6,6 +6,7 @@ import { kafkaList, type Topic } from '../api/kafkaops'
 import { readLineage, observedTime, evidenceLabel, kindLabel, resourcePath, type Direction, type Lineage, type LineageNode } from '../api/topic-lineage'
 import { cacheKey, classifyCandidate, syncCoverage, classifyLineage, collapseLineage, conditionsChanged, unregisteredBreaks, pickDisplayGraph, resolveSources, type NodeState, type Conditions, type LineageView, type Reason, type RuleLink } from '../topology/lineage-model'
 import { readCatalog, readTopics as readCatalogTopics, readable, type CatalogEndpoint } from '../api/catalog'
+import { refreshMessage, type RefreshMessage, type RefreshSnapshot } from '../topology/refresh-result'
 import TopicLineageCanvas from '../components/TopicLineageCanvas.vue'
 import { fullName } from '../topology/scopes'
 type ViewEdge=LineageView['edges'][number]
@@ -65,7 +66,7 @@ async function readDiscovery():Promise<Discovery>{
  const scopes=await registryRequest<{items:{id:string;synthetic:boolean;k8s_cluster?:string;removed?:boolean}[]}>('/discovery/scopes')
  const result:Discovery={stale:false,observedAt:'',links:[]}
  for(const s of scopes.items.filter(x=>!x.synthetic)){
-  try{const r=await registryRequest<{snapshot:{stale:boolean;observed_at:string;links:RuleLink[]}}>(`/discovery/scopes/${encodeURIComponent(s.id)}/snapshot?page_size=100`);result.stale||=r.snapshot.stale;result.observedAt=r.snapshot.observed_at;result.links.push(...(r.snapshot.links??[]).map(l=>({...l,scope_id:s.id,k8s_cluster:l.k8s_cluster??s.k8s_cluster})))}
+  try{const r=await registryRequest<{snapshot:{stale:boolean;observed_at:string;links:RuleLink[]}}>(`/discovery/scopes/${encodeURIComponent(s.id)}/snapshot?page_size=100`);result.stale||=r.snapshot.stale;result.observedAt=r.snapshot.observed_at;result.links.push(...(r.snapshot.links??[]).filter(l=>!(l as {removed?:boolean}).removed).map(l=>({...l,scope_id:s.id,k8s_cluster:l.k8s_cluster??s.k8s_cluster})))}
   catch{result.stale=true}
  }
  return result
@@ -95,11 +96,26 @@ async function load(){
   else error.value=(e as Error).name==='AbortError'?'查询超时或已取消，请重试':`本次查询失败：${(e as Error).message}`
  }finally{if(token===epoch){busy.value=false;globalThis.clearTimeout(timer)}}
 }
+const refreshResult=shallowRef<RefreshMessage>()
 async function refreshDiscovery(){
- refreshing.value=true
- try{for(const s of (await registryRequest<{items:{id:string;synthetic:boolean}[]}>('/discovery/scopes')).items.filter(x=>!x.synthetic))await registryRequest(`/discovery/scopes/${encodeURIComponent(s.id)}/runs`,'POST',{})
-  for(let i=0;i<20;i++){await new Promise(r=>globalThis.setTimeout(r,500));const d=await readDiscovery();if(!d.stale)break}
-  await load()}catch{error.value='刷新发现快照失败，请稍后重试'}finally{refreshing.value=false}
+ if(refreshing.value)return
+ refreshing.value=true;refreshResult.value=undefined
+ try{
+  const scopes=(await registryRequest<{items:{id:string;synthetic:boolean;removed?:boolean}[]}>('/discovery/scopes')).items.filter(x=>!x.synthetic&&!x.removed)
+  const results:string[]=[]
+  for(const s of scopes){
+   const path=`/discovery/scopes/${encodeURIComponent(s.id)}`
+   try{await registryRequest(`${path}/runs`,'POST',{})}catch(e){results.push((e as {code?:string}).code??'REQUEST_FAILED');continue}
+   let outcome='PENDING'
+   for(let i=0;i<30;i++){const job=await registryRequest<{status:string;error_code?:string}>(`${path}/runs/latest`);if(job.status==='done'){outcome=job.error_code??'';break};await new Promise(r=>globalThis.setTimeout(r,500))}
+   results.push(outcome)
+  }
+  const snaps:RefreshSnapshot[]=[]
+  for(const s of scopes){try{snaps.push((await registryRequest<{snapshot:RefreshSnapshot}>(`/discovery/scopes/${encodeURIComponent(s.id)}/snapshot?page_size=100`)).snapshot)}catch{/* reported by the result below */}}
+  refreshResult.value=refreshMessage(results,snaps)
+  discovery.value=await readDiscovery()
+  await load()
+ }catch{refreshResult.value={kind:'failed',text:'采集失败：刷新请求未成功，请稍后重试'}}finally{refreshing.value=false}
 }
 function act(a:Reason['actions'][number]){if(a.action==='refresh')void refreshDiscovery();else if(a.action==='deeper'&&depth.value<4){depth.value++;void query()}else void load()}
 function syncQuery(){cluster.value=String(route.query.cluster_id??'');topic.value=String(route.query.topic??'');const d=Number(route.query.depth??2);depth.value=[1,2,3,4].includes(d)?d:2;direction.value=['upstream','downstream','both'].includes(String(route.query.direction))?route.query.direction as Direction:'both';void load()}
@@ -132,10 +148,11 @@ onBeforeUnmount(()=>{++epoch;++catalogEpoch;request?.abort();globalThis.clearTim
     <div v-if="notFound" class="panel lineage-empty" data-not-found role="status"><strong>该集群未读取到此 Topic</strong><p>可能原因：该集群确实没有此 Topic；名称不完全一致（大小写、前缀或后缀）；集群连接不可用。</p><button type="button" data-reinput @click="topic='';notFound=false">重新输入 Topic</button> <router-link v-if="cluster" :to="`/kafka/clusters/${encodeURIComponent(cluster)}/details`">查看集群 Topic 列表</router-link></div>
     <template v-else-if="applied&&(data||display.banner)">
       <div v-if="display.banner" data-stale-banner class="stale-banner" role="status"><strong>{{ display.banner }}</strong><span>{{ display.graph?'当前保留最近一次配置图，不能据此判断当前连通或消息到达。':'' }}</span><button :disabled="refreshing" @click="refreshDiscovery">{{ refreshing?'正在刷新…':'刷新发现快照' }}</button></div>
+      <p v-if="refreshResult" data-refresh-result :class="['refresh-result',refreshResult.kind]" role="status">{{ refreshResult.text }}</p>
       <p v-if="display.notice" class="panel lineage-empty" data-no-history>{{ display.notice }}</p>
       <dl data-lineage-times class="lineage-times"><dt>查询时间</dt><dd>{{ observedTime(data?.observed_at) }}</dd><dt>配置采集时间</dt><dd>{{ observedTime(discovery?.observedAt) }}{{ discovery?.stale?'（已过期）':'' }}</dd><dt>Topic 元数据时间</dt><dd>{{ observedTime(rootNode?.observed_at) }}</dd></dl>
       <p v-if="summary && display.graph===data" data-source-summary class="source-summary">{{ summary }}</p>
-      <ul v-if="reasons.length" class="lineage-reasons"><li v-for="r in reasons" :key="r.kind" :data-reason="r.kind"><strong>{{ r.title }}</strong><p v-for="f in r.facts" :key="f">{{ f }}</p><div v-for="g in r.groups??[]" :key="g.task" data-unparsed-task class="unparsed-task"><strong>{{ g.task }}</strong><span>{{ g.where }}</span><span>{{ g.impact }}</span><router-link :to="g.to">在 MM2 拓扑查看</router-link></div><p v-if="r.more">另有 {{ r.more }} 条同类提示</p><div class="reason-actions"><template v-for="a in r.actions" :key="a.label"><router-link v-if="a.to" :to="a.to">{{ a.label }}</router-link><button v-else type="button" @click="act(a)">{{ a.label }}</button></template></div></li></ul>
+      <ul v-if="reasons.length" class="lineage-reasons"><li v-for="r in reasons" :key="r.kind" :data-reason="r.kind"><strong>{{ r.title }}</strong><p v-for="f in r.facts" :key="f">{{ f }}</p><div v-for="g in r.groups??[]" :key="g.task" data-unparsed-task class="unparsed-task"><strong>{{ g.task }}</strong><span>{{ g.where }}</span><span>{{ g.impact }}</span><router-link :to="g.to">在 MM2 拓扑查看</router-link></div><p v-if="r.more">另有 {{ r.more }} 条同类提示</p><div class="reason-actions"><template v-for="a in r.actions" :key="a.label"><router-link v-if="a.to" :to="a.to">{{ a.label }}</router-link><button v-else type="button" :disabled="a.action==='refresh'&&refreshing" @click="act(a)">{{ a.action==='refresh'&&refreshing?'正在刷新…':a.label }}</button></template></div></li></ul>
       <div v-if="view" class="lineage-workspace" :class="{'has-selection': selectedNode || selectedEdge}">
         <TopicLineageCanvas :view="view" :root-id="display.graph!.root_id" :states="display.graph===data?canvasStates:{}" @select-node="selectedNode=$event;selectedEdge=undefined" @select-edge="selectedEdge=$event;selectedNode=undefined" />
         <aside v-if="selectedNode || selectedEdge" class="lineage-detail panel" aria-label="链路详情">

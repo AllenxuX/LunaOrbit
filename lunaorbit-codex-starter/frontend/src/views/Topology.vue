@@ -14,6 +14,7 @@ import EndpointExplain from '../components/EndpointExplain.vue'
 import ClusterDrawer from '../components/ClusterDrawer.vue'
 import { catalogFor,readCatalog,type CatalogEndpoint } from '../api/catalog'
 import { mergeByCatalog } from '../topology/catalog-merge'
+import { refreshMessage } from '../topology/refresh-result'
 import { addressesOverlap,endpointMarks,endpointStates,loadManualReview,manualReviewKey,sanitizeAddress,saveManualReview,unregisteredSummary,type EndpointState } from '../topology/unregistered'
 import { filterByScope,groupByScope,mergeEntries,needsScopeBar,scopeSummary,withScopeNames } from '../topology/scopes'
 import { filterGraph,mappingLabel,mappingName,nodeIdentity,unknown } from '../topology/model'
@@ -237,7 +238,8 @@ async function discoverScopes(ids:string[]){
   if(!ready.value)await loadView(id,scope.value)
   if(!current(id))return;ready.value=true
   const gone=ids.filter((_,i)=>results[i]==='SCOPE_REMOVED').map(sid=>scopes.value.find(x=>x.id===sid)?.k8s_cluster??sid),failed=results.some(r=>r&&r!=='SCOPE_REMOVED')
-  notice.value=gone.length?`${gone.join('、')} 已被 Kite 移除，未重新采集；历史快照和绑定仍保留。${failed?'其余部分范围未完整成功，请查看范围栏中的失败项。':''}`:failed?'部分范围未完整成功；请查看范围栏中的失败项。':'资源发现完成；链路健康仍未验证'
+  const outcome=refreshMessage(results,rows.flatMap(r=>r.snapshot?[r.snapshot]:[]))
+  notice.value=gone.length?`${gone.join('、')} 已被 Kite 移除，未重新采集；历史快照和绑定仍保留。${failed?'其余部分范围未完整成功，请查看范围栏中的失败项。':''}`:failed?'部分范围未完整成功；请查看范围栏中的失败项。':outcome.kind==='success'?`${outcome.text}；链路健康仍未验证`:outcome.text
  }catch(e){if(current(id))error.value=message(e)}finally{if(current(id))busy.value=false}
 }
 async function reload() {
