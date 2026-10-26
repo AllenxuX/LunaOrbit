@@ -1,0 +1,100 @@
+# LunaOrbit release with an independently deployed PostgreSQL (REGISTRY_MODE=postgres).
+# Example only - contains NO secrets. Namespace: lunaorbit.
+#
+# Create once (values are yours, never commit them):
+#   kubectl -n lunaorbit create secret generic lunaorbit-db \
+#     --from-literal=POSTGRES_PASSWORD='<password>' \
+#     --from-literal=DATABASE_URL='postgresql://lunaorbit:<password>@lunaorbit-postgres.lunaorbit.svc.cluster.local:5432/lunaorbit?sslmode=disable'
+#   kubectl -n lunaorbit create secret generic lunaorbit-kite --from-file=KITE_API_KEY=<path-to-key-file>
+# Migrations ConfigMap, generated from the same source tree as the images (run in lunaorbit-codex-starter/):
+#   kubectl -n lunaorbit create configmap lunaorbit-migrations --from-file=migrations/ --dry-run=client -o yaml | kubectl apply -f -
+---
+apiVersion: v1
+kind: Service
+metadata: {name: lunaorbit-postgres, namespace: lunaorbit}
+spec:
+  clusterIP: None
+  selector: {app: lunaorbit-postgres}
+  ports: [{name: postgres, port: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: lunaorbit-postgres, namespace: lunaorbit}
+spec:
+  serviceName: lunaorbit-postgres
+  replicas: 1
+  selector: {matchLabels: {app: lunaorbit-postgres}}
+  template:
+    metadata: {labels: {app: lunaorbit-postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: POSTGRES_USER, value: lunaorbit}
+            - {name: POSTGRES_DB, value: lunaorbit}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: lunaorbit-db, key: POSTGRES_PASSWORD}}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "lunaorbit", "-d", "lunaorbit"]}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        # storageClassName: <SRE: cluster StorageClass>
+        resources: {requests: {storage: 10Gi}}
+---
+# API + web Pod: only the parts that change for REGISTRY_MODE=postgres are shown in full.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: lunaorbit, namespace: lunaorbit}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: lunaorbit}}
+  template:
+    metadata: {labels: {app: lunaorbit}}
+    spec:
+      initContainers:
+        # Runs 001..010 in filename order with psql; every file skips itself if its version is already in
+        # schema_migrations, so re-running on each Pod start is safe. Any error stops the Pod (API never starts).
+        - name: migrate
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-ec"]
+          args:
+            - |
+              until pg_isready -d "$DATABASE_URL" -q; do echo waiting for postgres; sleep 2; done
+              for f in $(ls /migrations/*.sql | sort); do
+                echo "migrate $(basename "$f")"
+                psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+              done
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: lunaorbit-db, key: DATABASE_URL}}
+          volumeMounts: [{name: migrations, mountPath: /migrations, readOnly: true}]
+      containers:
+        - name: api
+          image: lunaorbit-api:1.0.0
+          imagePullPolicy: IfNotPresent
+          envFrom: [{configMapRef: {name: lunaorbit-env}}]   # non-secret values from lunaorbit.env.example
+          env:
+            - {name: REGISTRY_MODE, value: postgres}
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: lunaorbit-db, key: DATABASE_URL}}
+            - name: KITE_API_KEY
+              valueFrom: {secretKeyRef: {name: lunaorbit-kite, key: KITE_API_KEY}}
+        - name: web
+          image: lunaorbit-web:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8088}]
+      volumes:
+        - name: migrations
+          configMap: {name: lunaorbit-migrations}
