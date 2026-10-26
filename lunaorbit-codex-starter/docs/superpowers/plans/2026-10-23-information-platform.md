@@ -17,3 +17,7 @@ Ruling: 保留旧实现源文件及历史密文，正式information模式不挂�
 Ruling: 专用实验选取一个明确的既有namespace作为共享工作空间，原地采用其ID而非批量改owner；预览确认4个登记、4个不同Kafka原生ID及readonly-lab快照。原有其他owner记录完全保持隔离，不合并、不删除。部署前保留私有数据库dump与Deployment备份。布局不迁移到共享空间，由本浏览器重新保存。
 
 验证完成：Go全量test/vet、245项前端测试、typecheck/lint/build、独立Mock浏览器2项、实际专用实验浏览器7项；记录PostgreSQL测试和控制台重启持久化验证通过。所有合成记录已清理，信息模式健康HTTP200，写/ACL/变更能力false。
+
+
+---
+> 2026-10-26 追加说明（LUNA-60）：产品定位调整为自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。本文为历史记录，原文不改；手工集群登记相关内容已被自动发现取代，现行约束见 AGENTS.md 与 SECURITY.md。

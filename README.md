@@ -1,6 +1,8 @@
 # LunaOrbit
 
-Go + Vue 的内网 Kafka / MirrorMaker 2 拓扑与信息记录平台。
+Go + Vue 的自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。
+
+集群无需先登记：平台通过 Kite 读取 MM2 配置自动发现 Kafka 集群和同步关系；手工补充只用于未被 MM2 覆盖的集群。
 
 **接续开发先读：[开发总结与交接说明](DEVELOPMENT_HANDOFF.md)。**
 

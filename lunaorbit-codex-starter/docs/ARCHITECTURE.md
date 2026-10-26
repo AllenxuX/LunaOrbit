@@ -1,3 +1,4 @@
+> 2026-10-26 定位调整（LUNA-60）：自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。
 > 2026-10-23 当前产品调整：内网无登录的共享消息拓扑与信息记录平台。登录、权限、业务账号密码交付、ACL和基础设施写操作退出当前范围；历史条目仅用于理解旧实现，不覆盖当前要求。信息登记可写，Kafka/MM2只采集查询，连接秘密仍仅供后台使用。现行设计见 [信息平台方案](superpowers/specs/2026-10-23-topology-information-platform.md)。
 
 # 技术架构
@@ -50,9 +51,11 @@ flowchart TB
 - 更改 ConfigMap 后需评估 MM2 启动模式和版本的重新加载机制；默认通过受控 Deployment rollout 生效，验证健康后完成操作。
 
 
-## v2 追加：Kafka 集群连接控制面
+## Endpoint Catalog（端点目录，2026-10-26 取代 v2 "Kafka Registry 一级子系统"）
 
-Kafka Registry 是一级子系统，与 Kite Registry 同等级。Vue 通过 Backend 注册不同集群的 bootstrap + SASL/TLS；连接信息保存为非敏感字段 + SecretRef，不直接存明文密码，也不持久化原始 JAAS。Go Kafka Adapter 从 SecretStore 按需解析密码并建立隔离的客户端；对每个集群独立限制连接数和探测并发；依靠 Kafka Cluster ID 和人工确认绑定 MM2 别名。
+端点目录由发现 Worker 维护：每个 MM2 别名生成一个自动端点（别名 + bootstrap host:port 集合，主机名按 Deployment hostAliases 解析）；手工补充端点来自部署配置（如 KAFKA_LAB_REGISTRATIONS）。合并顺序：Cluster ID > bootstrap 地址交集 > 别名（仅候选，不自动绑定）；同一集群只出现一次，同地址时自动发现优先，历史登记的机房、环境等业务字段附加到端点。凭据按认证 B 例外条款只在采集进程内存中，由只读白名单客户端使用；KAFKA_MM2_CREDENTIALS 关闭时不连接。
+
+> 下面原 v2 描述为历史：Kafka Registry 曾是一级子系统，通过表单登记 bootstrap + SASL/TLS 并保存 SecretRef。
 
 主支持范围：Kafka 3.7 和 3.9.2；兼容性测试覆盖 3.6 与 2.8。Broker exact version 有可能未知，接口功能依实际结果/ApiVersions 检测，明确版本来源。
 

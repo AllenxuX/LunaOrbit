@@ -49,3 +49,7 @@ these records contain no authentication secrets. Application metadata creation,
 editing, and deletion require unrestricted cluster application management. Request
 lists/details and audit entries are filtered using every input and planned Topic
 and consumer-group resource, including rules that already exist on Kafka.
+
+
+---
+> 2026-10-26 追加说明（LUNA-60）：产品定位调整为自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。本文为历史记录，原文不改；手工集群登记相关内容已被自动发现取代，现行约束见 AGENTS.md 与 SECURITY.md。

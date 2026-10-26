@@ -8,11 +8,18 @@
 - 用 `httptest` 验证 Kite API Key 放在 Authorization（无 Bearer），`x-cluster-name` 必填，Namespace/ConfigMap/Deployment/Pod 查询及权限错误区分。
 - 没有 Kite 写入；提供可复现的脱敏 Mock Fixtures。
 
-## Phase 02：Kafka 集群注册与认证（v2 新增）
-- 注册、编辑、停用、切换、连接测试流程可在 Vue 页面完成；当前集群是每个登录用户独立状态。
-- 单集群独立 bootstrap、认证机制（PLAIN、SCRAM-SHA-256、SCRAM-SHA-512）、安全协议（含 TLS）及 SecretRef；列表/接口/日志永不返回密码或原始 JAAS。
-- 非生产 Kafka 3.7 与 3.9.2 的连接适配完成；Mock 覆盖认证失败、TLS 失败、网络失败、权限不足和 advertised.listeners 不可达。
-- 所有集群数据不可由未授权用户读取，恶意内部地址不能被任意连接探测。
+## Phase 02：Kafka 集群注册与认证（v2，已作废）
+> 2026-10-26 作废：注册、编辑、停用、连接测试流程被自动发现取代，不再作为验收项。以下为替代验收。
+
+## 自动发现验收（替代 Phase 02）
+- 从已扫描范围内 MM2 配置自动生成端点：别名 + bootstrap（host:port，主机名按 hostAliases 解析）；与手工补充/历史登记按 Cluster ID、再按地址交集合并，同一集群只出现一次；地址命中多个登记显示"映射歧义·待确认"，不自动选；别名只作候选。
+- 端点状态区分：凭据未开启或不可读、地址无法解析、连接失败（超时、拒绝、TLS、认证失败）。页面只显示别名 + IP:端口和访问状态。
+- KAFKA_MM2_CREDENTIALS 关闭时不读取配置凭据、不发起自动连接；开启后页面显示"凭据来源：MM2 配置（只读）"。
+- Topic 链路在端点不可读时沿 MM2 配置继续，节点标"Topic 是否存在无法确认"；只有地址无法解析或配置没有该方向才中断并说明原因。
+
+## 专项：无凭据泄漏、无写请求
+- 在 MM2 配置放入唯一假密码，对页面文本、全部接口响应、日志、导出、发现快照、数据库逐一搜索，命中为 0。
+- 使用有写权限的测试账号：Produce、CreateTopics、AlterConfigs、OffsetCommit 等写请求被客户端拒绝，fake broker 未收到对应请求。
 
 ## Phase 03：MM2 自动发现
 - 识别 MM2 Deployment→ConfigMap→源目标 alias/Topic 规则，关联 Phase 02 的 Kafka Cluster ID 或待确认候选。

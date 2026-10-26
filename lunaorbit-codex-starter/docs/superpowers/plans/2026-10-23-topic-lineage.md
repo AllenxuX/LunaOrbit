@@ -14,3 +14,7 @@
 API contract: GET /api/v1/topic-lineage?cluster_id=<registration>&topic=<name>&depth=2&direction=both。响应root_id,observed_at,nodes,edges,issues,truncated,depth；nodes.kind=topic/mm2/application/consumer_group/unresolved；edges含source,target,kind,evidence(observed/configured/manual/historical/unknown),observed_at，可选scope_id/link_id/policy/rule；nodes含label及可选cluster_id,cluster_name,topic,group,application_id,link_id,exists,evidence,observed_at。issues含code,message及可选cluster_id/link_id。
 
 Ruling: 默认深度2段，支持1～4段和upstream/downstream/both；查询有界，保留根Topic。人工登记不是实际消息流，ACL不是生产消费证据，目标Topic存在不等于复制已验证。不接入业务SDK/探针，不抓取消息内容，不修改Kafka/MM2。
+
+
+---
+> 2026-10-26 追加说明（LUNA-60）：产品定位调整为自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。本文为历史记录，原文不改；手工集群登记相关内容已被自动发现取代，现行约束见 AGENTS.md 与 SECURITY.md。

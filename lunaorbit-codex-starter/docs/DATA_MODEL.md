@@ -24,3 +24,8 @@
 ## v2 补充：Kafka Registry 必须细化（见 KAFKA_CLUSTER_MANAGEMENT.md）
 
 原 `kafka_clusters` 资产表不能承载完整连接配置。至少拆分 `kafka_cluster_registrations`（展示信息、地址和标识）、`kafka_cluster_credentials`（仅凭据引用/脱敏元数据）、`kafka_cluster_capabilities`（按集群探测到的管理能力）和 `mm2_cluster_alias_bindings`（MM2 别名绑定）。**严禁**将截图中的密码或原始 `sasl.jaas.config` 存库。不可用用户填的版本替代运行态 API 探测。
+
+## 2026-10-26 补充：自动发现
+
+- `kafka_cluster_registrations` 增加来源字段 `source`（`auto` / `manual`）：自动发现端点与手工补充端点区分；同一集群合并后只保留一个端点，业务字段（机房、环境等）附加其上。
+- `kafka_cluster_credentials` 标记为 legacy：认证 B 下 MM2 配置凭据只在采集进程内存中，不写入任何表；旧凭据记录保留不删、可恢复，不再新增。

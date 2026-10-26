@@ -1,3 +1,6 @@
+> 2026-10-26 定位调整（LUNA-60）：自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。
+> 当前 P0：自动发现（Kite + MM2 配置读出集群与同步关系）、Kafka 只读查询、同步拓扑与 Topic 链路。不做：登录、RBAC、写 Kafka/K8s、追消息内容、从配置推断业务流量。新增：自动发现不等于信任；凭据按 AGENTS.md 认证 B 例外只读使用。下方历史 P0/P1/P2 仅供理解旧实现。
+
 > 2026-10-23 当前产品调整：内网无登录的共享消息拓扑与信息记录平台。登录、权限、业务账号密码交付、ACL和基础设施写操作退出当前范围；历史条目仅用于理解旧实现，不覆盖当前要求。信息登记可写，Kafka/MM2只采集查询，连接秘密仍仅供后台使用。现行设计见 [信息平台方案](superpowers/specs/2026-10-23-topology-information-platform.md)。
 
 # 产品需求：LunaOrbit
@@ -40,11 +43,6 @@
 - 不宣称仅靠 MM2 配置就能识别所有业务消费者或保证语义去重。
 
 
-## v2 新增 P0 功能：Kafka 集群管理器
+## v2 Kafka 集群管理器（已被自动发现取代）
 
-- 参考常见 Kafka UI 的「集群信息」表格，支持新增、编辑、测试连接、切换、停用与软删除。
-- 一集群一套认证：bootstrap.servers、PLAIN/SCRAM、SASL_PLAINTEXT/SASL_SSL、TLS CA/ServerName；集群之间不能共用浏览器端凭据。
-- 列表仅展示用户名遮蔽信息、连接状态、Cluster ID、Broker 数量、最后探测时间；**禁止展示密码和原始 JAAS**。
-- 切换后的 Kafka 菜单包含 Brokers、Topics、Partitions、Consumer Groups、ACL；生产写操作暂不启用。
-- 支持 Kafka 3.7/3.9.2；旧版通过能力检测降级。
-- 与 MM2 发现共享 Kafka Cluster ID，不能仅用别名自动绑定真实拓扑。
+> 本节为历史 v2 方案，2026-10-26 被自动发现取代：集群来自 MM2 配置，手工新增/编辑/测试连接/切换/停用入口隐藏，数据保留。原文见 [KAFKA_CLUSTER_MANAGEMENT.md](KAFKA_CLUSTER_MANAGEMENT.md)。

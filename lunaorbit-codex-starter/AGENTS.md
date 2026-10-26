@@ -2,7 +2,7 @@
 
 ## 产品目标
 
-构建 Go + Vue 的内网消息拓扑与信息记录平台：共享集群登记、Kafka资源只读查询、Kite/MM2自动发现、同步拓扑、应用生产消费信息和浏览器个人布局。2026-10-23用户明确取消登录、LDAP、RBAC、团队授权、Kafka账号/密码/ACL管理及实际配置写操作；当前产品使用PLATFORM_MODE=information。2026-10-23后续用户明确允许应用关系登记Kafka账号名称/Principal、Client ID及部署位置；这是信息绑定，不恢复账号密码/ACL管理，不验证或推断实际流量。历史相关实现仅保留兼容和归档，不重新暴露入口或API。信息登记与集群连接参数可以修改，但不能修改Kafka/MM2基础设施。新要求优先于下文历史授权约束。
+自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。能力：Kite/MM2 自动发现 Kafka 集群与同步关系、Kafka 资源只读查询、同步拓扑、应用生产消费信息和浏览器个人布局；手工登记只补充未被 MM2 覆盖的集群和业务字段。2026-10-23用户明确取消登录、LDAP、RBAC、团队授权、Kafka账号/密码/ACL管理及实际配置写操作；当前产品使用PLATFORM_MODE=information。2026-10-23后续用户明确允许应用关系登记Kafka账号名称/Principal、Client ID及部署位置；这是信息绑定，不恢复账号密码/ACL管理，不验证或推断实际流量。历史相关实现仅保留兼容和归档，不重新暴露入口或API。业务信息登记可以修改；集群连接参数来自 MM2 配置，不作为手工配置前提；不能修改Kafka/MM2基础设施。新要求优先于下文历史授权约束。
 
 ## 不可违反的架构边界
 
@@ -38,13 +38,14 @@
 5. 下一阶段建议（不要自行开工）
 
 
-## Kafka 连接与集群切换（v2 新增强制约束）
+## Kafka 连接（2026-10-26 自动发现优先，取代 v2 手工注册约束；第 14 条截图凭据禁令保留）
 
-13. Kafka 集群管理采用**手工注册 + Kafka 原生 API 实际查询**。前端必须支持每集群独立配置 bootstrap、`security.protocol`、SASL mechanism、用户名、秘密引用以及 TLS 信任配置；不可把不同集群的认证参数做成全局配置。
+13. Kafka 集群由 Kite/MM2 自动发现：认证信息由 MM2 配置提供、平台只读使用；不再要求前端为每个集群手工配置 bootstrap、SASL、TLS。手工补充（部署配置）只用于未被 MM2 覆盖的集群，同地址时自动发现优先。
 14. 用户提供的 Kafka 管理界面截图含明显密钥信息，**绝对禁止**将截图中的用户名/密码、原始 JAAS、秘钥内容复制到代码、测试 Fixture、日志、文档或者示例。所有演示数据必须合成。
-15. Go franz-go 必须将 Java JAAS 语义映射为结构化 Go SASL 配置，而不能传递 JAAS 字符串作为认证逻辑。可以做严格白名单的导入辅助，但默认禁用。
-16. `SASL_PLAINTEXT` 仅兼容现存环境，前端显著风险警示，推荐 `SASL_SSL`。密码仅由后端 Secrets Provider 解析；集群查询和列表永不包含明文密码。
+15. Go franz-go 必须将 MM2 配置中的 JAAS 语义映射为结构化 Go SASL 配置（PLAIN、SCRAM-SHA-256、SCRAM-SHA-512），不能把 JAAS 字符串作为认证逻辑传递或展示。
+16. 例外（经用户书面批准）：平台可从 MM2 ConfigMap 的 sasl.jaas.config 解析 Kafka 凭据，仅用于只读元数据采集。凭据只在采集进程内存中存在，不写入数据库、发现快照、日志或任何接口响应；不得在页面、日志、导出中展示用户名、密码或 jaas 原文。采集客户端只允许只读请求类型，写路由不注册。该能力由独立开关 KAFKA_MM2_CREDENTIALS 控制，代码默认关闭，部署时显式开启。开启后页面显示"凭据来源：MM2 配置（只读）"。
+16a. 只读白名单：Metadata、ApiVersions、DescribeCluster、DescribeConfigs、ListOffsets、OffsetFetch、DescribeGroups、ListGroups、FindCoordinator、DescribeLogDirs；其余请求类型在客户端拒绝，不发出网络包。凭据只在采集进程内存中，重启即失；`SASL_PLAINTEXT` 仍提示未加密风险。
 17. Kafka 3.7/3.9.2 走主路径，3.6/2.8 走兼容能力探测；不根据用户填的版本推断特定管理 API 一定可用，也不得从 `ApiVersions` 直接断言 Broker 的精确发行版本。
 18. 每集群连接先验证 seed broker，再验证 `advertised.listeners` 发现的 Broker 可达性；错误须区分网络、TLS、认证、授权及 API 不支持。
 19. 所有 Kafka 集群注册必须受到 SSRF/任意内网探测防护、用户资源范围限制、客户端池上限和探测速率限制。
-20. 先阅读 `docs/KAFKA_CLUSTER_MANAGEMENT.md`，这是 Kafka 控制台、认证配置、数据模型和 API 的最新约束；旧方案如有冲突以此为准。
+20. `docs/KAFKA_CLUSTER_MANAGEMENT.md` 是历史 v2 方案，已被自动发现取代；其中 SSRF 与探测限制条款仍然有效。

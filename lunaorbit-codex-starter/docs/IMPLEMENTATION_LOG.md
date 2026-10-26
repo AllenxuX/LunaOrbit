@@ -833,3 +833,8 @@ README、Topic链路说明、计划和路线图已更新。本批完成并停止
 远端预检为空仓库，本地此前无提交；建立codex/handoff-2026-10-23分支，未覆盖或强推其他历史。新增根gitignore与统一文本换行策略，实际源文件、锁文件、迁移、设计和测试均纳入；本地env、私钥、依赖、产物和测试截图排除。提交前扫描460个原候选文件，用户实验密码、常见GitHub/Kite/AWS Key与私钥模式无命中；最终暂存内容再次复核。
 
 交接提交前重新执行：scripts/tasks.ps1 test（Go全量test/vet、前端52文件258项）通过；pnpm lint及build（含vue-tsc类型检查）通过。既有大chunk提示保留。Git文本换行/EOF检查和最终暂存敏感模式扫描执行后再提交；不修改应用功能或运行环境。
+
+
+## 2026-10-26 LUNA-60 阶段 0：文档与条款
+- 定位调整为自动发现优先；根与项目 AGENTS 加入认证 B 例外条款、只读白名单与开关 KAFKA_MM2_CREDENTIALS；PRD/ACCEPTANCE/ROADMAP/HANDOFF/README/ARCHITECTURE/SECURITY/DATA_MODEL 按修订清单更新；KAFKA_CLUSTER_MANAGEMENT 标为历史方案；历史文档只追加说明。
+- 只改文档，未改代码；未运行测试（无代码变更）。

@@ -2,7 +2,9 @@
 
 换电脑或接续开发请先读仓库根目录的 [开发总结与交接说明](../DEVELOPMENT_HANDOFF.md)。
 
-内网使用的 Kafka / MirrorMaker 2 消息拓扑与信息记录平台。
+自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。
+
+- 集群由 Kite/MM2 自动发现，无需先登记；未被 MM2 覆盖的集群可通过部署配置手工补充（页面标"手工补充"）。
 
 - 无登录，所有访问者共享同一工作空间的集群和应用记录。
 - 查询集群、Broker、Topic、分区、消费组和配置；观察MM2同步拓扑与上下游路径。
@@ -23,7 +25,7 @@ pwsh -File scripts/tasks.ps1 frontend
 
 打开 http://127.0.0.1:5173 。该命令默认使用内存Mock；重启后信息记录会清空。要保存记录，先配置PostgreSQL并执行migrations，再在启动终端设置 `REGISTRY_MODE=postgres-mock`、`DATABASE_URL`、固定的 `INFORMATION_WORKSPACE_ID`。Go读取进程环境，不会自动载入 `.env`。
 
-`.env.example`仅提供本地配置示例；数据库密码、Kafka连接凭据与Kite Key不要提交。集群SASL/TLS连接凭据仅用于后台采集，不能读取原值。目前连接Secret Provider仍为内存实现；生产持久化秘密提供方尚未接入，重启后可能需要重新录入连接秘密，不能把数据库中的引用当成秘密已持久化。专用实验的PLAINTEXT目录不受此限制。
+`.env.example`仅提供本地配置示例；数据库密码、Kafka连接凭据与Kite Key不要提交。MM2 配置中的 Kafka 凭据只在 `KAFKA_MM2_CREDENTIALS` 开启时读入采集进程内存，只读使用，不落库、不出现在页面和日志。集群SASL/TLS连接凭据仅用于后台采集，不能读取原值。目前连接Secret Provider仍为内存实现；生产持久化秘密提供方尚未接入，重启后可能需要重新录入连接秘密，不能把数据库中的引用当成秘密已持久化。专用实验的PLAINTEXT目录不受此限制。
 
 ## 运行配置
 

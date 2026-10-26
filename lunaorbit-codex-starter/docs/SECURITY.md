@@ -1,6 +1,15 @@
+> 2026-10-26 定位调整（LUNA-60）：自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。
 > 2026-10-23 当前产品调整：内网无登录的共享消息拓扑与信息记录平台。登录、权限、业务账号密码交付、ACL和基础设施写操作退出当前范围；历史条目仅用于理解旧实现，不覆盖当前要求。信息登记可写，Kafka/MM2只采集查询，连接秘密仍仅供后台使用。现行设计见 [信息平台方案](superpowers/specs/2026-10-23-topology-information-platform.md)。
 
 # 安全与变更约束
+
+## 2026-10-26 认证 B 例外（MM2 配置凭据只读使用）
+
+例外（经用户书面批准）：平台可从 MM2 ConfigMap 的 sasl.jaas.config 解析 Kafka 凭据，仅用于只读元数据采集。凭据只在采集进程内存中存在，不写入数据库、发现快照、日志或任何接口响应；不得在页面、日志、导出中展示用户名、密码或 jaas 原文。采集客户端只允许只读请求类型，写路由不注册。该能力由独立开关 KAFKA_MM2_CREDENTIALS 控制，代码默认关闭，部署时显式开启。开启后页面显示"凭据来源：MM2 配置（只读）"。
+
+- 只读白名单：Metadata、ApiVersions、DescribeCluster、DescribeConfigs、ListOffsets、OffsetFetch、DescribeGroups、ListGroups、FindCoordinator、DescribeLogDirs；其余请求类型在客户端拒绝，不发出网络包。写路由不注册。
+- 凭据不进入发现快照、数据库、日志、Trace、错误详情、接口响应和导出；验收以唯一假密码全域搜索命中 0 为准。
+- 自动发现的地址只允许来自已扫描范围的 MM2 配置；SSRF 防护、出站白名单、探测并发/限速/超时条款继续有效。
 
 ## 2026-10-21 应用业务凭据受控交付例外
 

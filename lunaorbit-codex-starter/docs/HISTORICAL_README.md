@@ -204,3 +204,7 @@ pwsh -File scripts/tasks.ps1 frontend
 实验入口为当前管理员会话自动初始化已部署的源、目标 Kafka 登记，并执行真实连接探测。该行为仅在服务端显式配置 KAFKA_LAB_REGISTRATIONS 的只读实验模式启用；保留所有者隔离和用户后续编辑、删除。刷新集群页面即可加载，无需手动再次录入。
 
 授权实验部署已支持 admin-lab 管理模式：拓扑自动发现并映射已部署两端 Kafka，MM2 Topic 规则可预览、批准、执行。实际写入仅限服务端白名单资源，通过 Kite 完成；默认部署仍不启用写入。Kafka ACL 的可执行性取决于 Broker authorizer，当前 PLAINTEXT 实验 Broker 尚未配置 authorizer。
+
+
+---
+> 2026-10-26 追加说明（LUNA-60）：产品定位调整为自动发现优先的内网 Kafka/MM2 拓扑与信息平台：从 Kite 与 MM2 配置自动读出集群和同步关系，人工只负责补充和登记业务信息。本文为历史记录，原文不改；手工集群登记相关内容已被自动发现取代，现行约束见 AGENTS.md 与 SECURITY.md。
