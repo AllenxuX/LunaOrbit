@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"lunaorbit/backend/internal/discovery/collector"
+	"lunaorbit/backend/internal/discovery/mm2auth"
 	"lunaorbit/backend/internal/discovery/resource"
 	"slices"
 	"sort"
@@ -65,6 +66,9 @@ type Service struct {
 	removed  map[string]time.Time
 	kiteErr  map[string]string
 	autoMode bool
+	// mm2Creds is non-nil only when KAFKA_MM2_CREDENTIALS is on; credentials stay in memory.
+	mm2Creds  *mm2auth.Store
+	endpoints map[string][]AutoEndpoint
 }
 
 // ClusterEntry is one cluster from Kite's cluster list (name only; Kite has
@@ -130,6 +134,29 @@ func (s *Service) isRemoved(id string) bool {
 }
 
 // EnableAutoScopes switches lab bindings to cluster-qualified entries.
+// EnableMM2Credentials turns on reading MM2 client credentials into the given in-memory store.
+func (s *Service) EnableMM2Credentials(store *mm2auth.Store) {
+	s.scopeMu.Lock()
+	s.mm2Creds = store
+	s.scopeMu.Unlock()
+}
+
+// Endpoints returns the auto-discovered endpoints of every scope (no credential material).
+func (s *Service) Endpoints() []AutoEndpoint {
+	s.scopeMu.RLock()
+	defer s.scopeMu.RUnlock()
+	ids := make([]string, 0, len(s.endpoints))
+	for id := range s.endpoints {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := []AutoEndpoint{}
+	for _, id := range ids {
+		out = append(out, s.endpoints[id]...)
+	}
+	return out
+}
+
 func (s *Service) EnableAutoScopes() { s.scopeMu.Lock(); s.autoMode = true; s.scopeMu.Unlock() }
 
 // AutoScopeID derives a stable, URL-safe scope id from a Kite cluster name.
@@ -408,6 +435,18 @@ func (s *Service) run(actor Actor, scope resource.Scope, scenario, key string) {
 	}
 	bindings = s.resolveLabBindings(col, registrations, bindings)
 	snapshot, e := Build(col, registrations, bindings, nil, previous)
+	if e == nil && col.ErrorCode == "" {
+		s.scopeMu.RLock()
+		creds := s.mm2Creds
+		s.scopeMu.RUnlock()
+		eps := extractEndpoints(col, creds)
+		s.scopeMu.Lock()
+		if s.endpoints == nil {
+			s.endpoints = map[string][]AutoEndpoint{}
+		}
+		s.endpoints[scope.ID] = eps
+		s.scopeMu.Unlock()
+	}
 	if e != nil {
 		code = "DISCOVERY_LIMIT_OR_INVALID_INPUT"
 		col = resource.Collection{Scope: scope, ObservedAt: time.Now().UTC(), ErrorCode: code}

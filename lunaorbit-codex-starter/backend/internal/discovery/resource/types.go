@@ -42,6 +42,12 @@ type Volume struct {
 	Name      string  `json:"name"`
 	ConfigMap *KeyRef `json:"configMap,omitempty"`
 }
+
+// HostAlias is a Pod hostAliases entry: hostnames resolved to ip inside the MM2 Pod.
+type HostAlias struct {
+	IP        string   `json:"ip"`
+	Hostnames []string `json:"hostnames"`
+}
 type Deployment struct {
 	Metadata Metadata `json:"metadata"`
 	Spec     struct {
@@ -54,6 +60,7 @@ type Deployment struct {
 				Containers     []Container `json:"containers"`
 				InitContainers []Container `json:"initContainers"`
 				Volumes        []Volume    `json:"volumes"`
+				HostAliases    []HostAlias `json:"hostAliases,omitempty"`
 			} `json:"spec"`
 		} `json:"template"`
 	} `json:"spec"`
