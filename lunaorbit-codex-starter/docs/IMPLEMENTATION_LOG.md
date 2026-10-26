@@ -838,3 +838,11 @@ README、Topic链路说明、计划和路线图已更新。本批完成并停止
 ## 2026-10-26 LUNA-60 阶段 0：文档与条款
 - 定位调整为自动发现优先；根与项目 AGENTS 加入认证 B 例外条款、只读白名单与开关 KAFKA_MM2_CREDENTIALS；PRD/ACCEPTANCE/ROADMAP/HANDOFF/README/ARCHITECTURE/SECURITY/DATA_MODEL 按修订清单更新；KAFKA_CLUSTER_MANAGEMENT 标为历史方案；历史文档只追加说明。
 - 只改文档，未改代码；未运行测试（无代码变更）。
+
+## 2026-10-26 LUNA-60 阶段 1：自动发现与只读白名单（后端）
+- MM2 凭据解析（security.protocol / sasl.mechanism / sasl.jaas.config，全局与别名前缀）只在 KAFKA_MM2_CREDENTIALS=true 时进行，凭据仅存内存，类型对 fmt/slog/json 一律脱敏；hostAliases 解析主机名。
+- 只读白名单客户端：连接层按 Kafka 帧检查 API key，非白名单请求不写出（kfake 验证 Produce/CreateTopics/AlterConfigs/OffsetCommit/DeleteTopics 未到达 broker）。
+- 端点目录：Cluster ID > 地址交集合并，单一登记附加业务字段，多登记标歧义，未覆盖登记为手工补充，自动不可读时回退登记读取。
+- 出站：自动端点只可连接 MM2 配置里的地址及在这些端口上通告的 broker，解析结果必须在 KAFKA_LAB_ALLOWED_CIDRS 内。
+- Topic 链路：不可读端点继续沿 MM2 配置展开（存在性无法确认），仅地址无法解析时中断并说明。
+- 测试：go test ./... 471 通过 / 20 跳过；canary 假密码在快照、存储、日志、接口响应中命中 0。真实连接待线上 luna-mm2-lab 验证。
