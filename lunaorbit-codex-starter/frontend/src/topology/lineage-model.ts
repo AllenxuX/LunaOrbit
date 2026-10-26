@@ -186,9 +186,9 @@ export function resolveSources(input:{direction:Direction;up?:Lineage;down?:Line
  const nodeIds=new Set([...keep,...keepM])
  for(const n of base.nodes)if(n.kind!=='topic'&&n.kind!=='mm2'&&base.edges.some(e=>(e.source===n.id&&keep.has(e.target))||(e.target===n.id&&keep.has(e.source))))nodeIds.add(n.id)
  const graph:Lineage={...base,nodes:base.nodes.filter(n=>nodeIds.has(n.id)),edges:base.edges.filter(e=>nodeIds.has(e.source)&&nodeIds.has(e.target))}
- const order=[...keep],sources=order.filter(id=>states[id]!.kind==='source').map(name).sort(),breaks=order.filter(id=>states[id]!.kind==='break').length,pending=order.filter(id=>states[id]!.kind==='pending').length
+ const order=[...keep],sources=order.filter(id=>states[id]!.kind==='source').map(name).sort(),breaks=order.filter(id=>states[id]!.kind==='break').length,unknownN=order.filter(id=>unknown(id)).length,pending=order.filter(id=>states[id]!.kind==='pending'&&!unknown(id)).length
  const parts=[sources.length===1&&!breaks?`源头：${sources[0]}`:`源头 ${sources.length} 个${sources.length?'：'+sources.join('、'):''}`]
- if(breaks)parts.push(`断点 ${breaks} 处`);if(pending)parts.push(`未出现 ${pending} 个`)
+ if(breaks)parts.push(`断点 ${breaks} 处`);if(pending)parts.push(`未出现 ${pending} 个`);if(unknownN)parts.push(`存在性无法确认 ${unknownN} 个`)
  return {graph,states,summary:parts.join(' · '),rootMissing:false,sources}
 }
 

@@ -272,6 +272,7 @@ describe('unreadable endpoints in a lineage',()=>{
   const r=resolveSources({direction:'downstream',down})
   expect(r.graph.nodes.map(x=>x.id)).toEqual(['a','m1','x','m2','c'])
   expect(r.states.x).toEqual({kind:'pending',text:'Topic 是否存在无法确认'})
+  expect(r.summary).toContain('存在性无法确认 1 个');expect(r.summary).not.toContain('未出现')
   const rootUnknown=resolveSources({direction:'downstream',down:{...down,root_id:'x'}})
   expect(rootUnknown.rootMissing).toBe(false)
  })
