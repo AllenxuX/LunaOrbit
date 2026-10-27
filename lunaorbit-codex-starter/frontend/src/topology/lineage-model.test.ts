@@ -160,7 +160,7 @@ describe('源头 four-state rule (LUNA-28)',()=>{
  const load=()=>import('./lineage-model')
  it('k4 luna-src-k4 upstream 4: only k4, marked 源头',async()=>{
   const {resolveSources}=await load(),r=resolveSources({direction:'upstream',up:trace('k4','upstream',4,src4)})
-  expect(cl(r.graph)).toEqual(['k4']);expect(kinds(r)).toEqual({k4:'source'});expect(r.summary).toBe('源头：k4')
+  expect(cl(r.graph)).toEqual(['k4']);expect(kinds(r)).toEqual({k4:'source'});expect(r.summary).toBe('配置上游起点：k4')
  })
  it('k4 luna-src-k4 downstream 4: k4 k7 k8 k9, 3 relations, only k4 is 源头',async()=>{
   const {resolveSources}=await load(),r=resolveSources({direction:'downstream',up:trace('k4','upstream',4,src4),down:trace('k4','downstream',4,src4)})
@@ -171,7 +171,7 @@ describe('源头 four-state rule (LUNA-28)',()=>{
   const {resolveSources}=await load()
   for(const d of [3,4]){const r=resolveSources({direction:'upstream',up:trace('k8','upstream',d,()=>true)})
    expect(cl(r.graph)).toEqual(['k1','k2','k3','k4','k5','k6','k7','k8']);expect(rel(r.graph)).toBe(9)
-   expect(Object.entries(kinds(r)).filter(([,k])=>k==='source').map(([c])=>c)).toEqual(['k1']);expect(r.summary).toBe('源头：k1')}
+   expect(Object.entries(kinds(r)).filter(([,k])=>k==='source').map(([c])=>c)).toEqual(['k1']);expect(r.summary).toBe('配置上游起点：k1')}
  })
  it('query cluster without the topic draws nothing',async()=>{
   const {resolveSources}=await load(),r=resolveSources({direction:'both',up:trace('k1','upstream',4,src4),down:trace('k1','downstream',4,src4)})
@@ -180,17 +180,17 @@ describe('源头 four-state rule (LUNA-28)',()=>{
  it('downstream target not yet present stays as a pending node and is not expanded',async()=>{
   const {resolveSources}=await load(),P:[string,string][]=[['a','b'],['b','c']],ex=(c:string)=>c!=='b'
   const r=resolveSources({direction:'downstream',up:trace('a','upstream',4,ex,P),down:trace('a','downstream',4,ex,P)})
-  expect(cl(r.graph)).toEqual(['a','b']);expect(r.states['topic:b']).toEqual({kind:'pending',text:'已配置同步，目标 Topic 尚未出现'});expect(r.summary).toBe('源头：a · 未出现 1 个')
+  expect(cl(r.graph)).toEqual(['a','b']);expect(r.states['topic:b']).toEqual({kind:'pending',text:'已配置同步，目标 Topic 尚未出现'});expect(r.summary).toBe('配置上游起点：a · 未出现 1 个')
  })
  it('broken chain in the middle: stop at the gap and mark 上游断点',async()=>{
   const {resolveSources}=await load(),P:[string,string][]=[['a','b'],['b','c']],ex=(c:string)=>c!=='b'
   const r=resolveSources({direction:'upstream',up:trace('c','upstream',4,ex,P)})
-  expect(cl(r.graph)).toEqual(['c']);expect(r.states['topic:c']).toEqual({kind:'break',text:'上游断点：b 无此 Topic'});expect(r.summary).toBe('源头 0 个 · 断点 1 处')
+  expect(cl(r.graph)).toEqual(['c']);expect(r.states['topic:c']).toEqual({kind:'break',text:'上游断点：b 无此 Topic'});expect(r.summary).toBe('配置上游起点 0 个 · 断点 1 处')
  })
  it('two independently created sources are both marked and listed',async()=>{
   const {resolveSources}=await load(),P:[string,string][]=[['x','z'],['y','z'],['w','x']],ex=(c:string)=>c!=='w'
   const r=resolveSources({direction:'upstream',up:trace('z','upstream',4,ex,P)})
-  expect(cl(r.graph)).toEqual(['x','y','z']);expect(kinds(r)).toEqual({x:'source',y:'source',z:'exists'});expect(r.summary).toBe('源头 2 个：x、y')
+  expect(cl(r.graph)).toEqual(['x','y','z']);expect(kinds(r)).toEqual({x:'source',y:'source',z:'exists'});expect(r.summary).toBe('配置上游起点 2 个：x、y')
  })
  it('上下游 union still yields k4 k7 k8 k9 and no forbidden wording',async()=>{
   const {resolveSources}=await load(),r=resolveSources({direction:'both',up:trace('k4','upstream',4,src4),down:trace('k4','downstream',4,src4)})
@@ -206,7 +206,7 @@ describe('same-name topic on an unconnected cluster (LUNA-29)',()=>{
   const r=resolveSources({direction:'both',up:iso(trace('k4','upstream',4,()=>true)),down:iso(trace('k4','downstream',4,()=>true))})
   expect(r.graph.nodes.some(n=>n.cluster_id==='zz')).toBe(false)
   expect(r.graph.edges.some(e=>e.source==='topic:zz'||e.target==='topic:zz')).toBe(false)
-  expect(r.sources).toEqual(['k1']);expect(r.summary).toBe('源头：k1')
+  expect(r.sources).toEqual(['k1']);expect(r.summary).toBe('配置上游起点：k1')
  })
 })
 

@@ -120,7 +120,7 @@ describe('Topic 链路 page',()=>{
   expect(urls.some(u=>u.includes('direction=upstream'))&&urls.some(u=>u.includes('direction=downstream'))).toBe(true)
   expect(view(wrapper).nodes.map(n=>n.id)).toEqual(['topic:b'])
   const states=wrapper.findComponent({name:'TopicLineageCanvas'}).props('states') as Record<string,{kind:string}>
-  expect(states['topic:b']!.kind).toBe('source');expect(wrapper.get('[data-source-summary]').text()).toBe('源头：Shanghai')
+  expect(states['topic:b']!.kind).toBe('source');expect(wrapper.get('[data-source-summary]').text()).toBe('配置上游起点：Shanghai')
   expect(wrapper.text()).not.toMatch(/配置目标|上游（Topic 不存在）/)
   wrapper.unmount()
  })

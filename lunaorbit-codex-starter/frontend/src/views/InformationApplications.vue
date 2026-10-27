@@ -11,7 +11,7 @@ let epoch = 0
 async function load() {
   const token = ++epoch; busy.value = true; error.value = ''
   try { const result = await listInformationApplications(page.value, query.value); if (token === epoch) { items.value = result.items; total.value = result.total } }
-  catch { if (token === epoch) error.value = '应用信息暂时不可用，请刷新重试。' }
+  catch { if (token === epoch) error.value = '应用信息暂时不可用，请重读重试。' }
   finally { if (token === epoch) busy.value = false }
 }
 async function loadClusters() {
@@ -23,7 +23,7 @@ async function loadClusters() {
       if (result.length >= data.total || !data.items.length) break
     }
     clusters.value = result
-  } catch { error.value = '集群选项加载失败，请刷新重试。' }
+  } catch { error.value = '集群选项加载失败，请重读重试。' }
 }
 function open(item?: InformationApplication) { editing.value = item; formOpen.value = true }
 async function saved() { formOpen.value = false; editing.value = undefined; notice.value = '应用信息已保存，所有访客共享此记录。'; await load() }
@@ -31,7 +31,7 @@ async function remove() {
   if (!deleting.value || busy.value) return
   busy.value = true; error.value = ''
   try { await deleteInformationApplication(deleting.value); deleting.value = undefined; notice.value = '应用信息已删除。'; await load() }
-  catch (e) { error.value = e instanceof ApiError && e.status === 409 ? '应用已被其他人更新，请取消并刷新后重试。' : '删除失败，请刷新后重试。' }
+  catch (e) { error.value = e instanceof ApiError && e.status === 409 ? '应用已被其他人更新，请取消并重读后重试。' : '删除失败，请重读后重试。' }
   finally { busy.value = false }
 }
 function clusterName(id: string) { return clusters.value.find(cluster => cluster.id === id)?.display_name ?? '已移除的集群' }
@@ -41,7 +41,7 @@ onBeforeUnmount(() => { ++epoch })
 </script>
 <template>
   <section class="registry information-applications">
-    <header class="page-header"><div><h1>应用信息</h1><p>登记业务应用、负责人和 Kafka 生产消费关系。</p></div><div class="page-actions"><button :disabled="busy" @click="load(); loadClusters()">刷新</button><button class="button-primary" @click="open()">新增应用</button></div></header>
+    <header class="page-header"><div><h1>应用信息</h1><p>登记业务应用、负责人和 Kafka 生产消费关系。登记关系不等于实际生产消费流量。</p></div><div class="page-actions"><button :disabled="busy" @click="load(); loadClusters()">重读已有数据</button><button class="button-primary" @click="open()">新增应用</button></div></header>
     <p v-if="error" class="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <section class="panel">
       <div class="panel-header"><h2>业务应用</h2><span class="helper-text">共 {{ total }} 个 · 所有访客共享</span></div>

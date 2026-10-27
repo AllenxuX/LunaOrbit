@@ -3,7 +3,14 @@ import { afterEach, expect, it, vi } from 'vitest'
 import Overview from './Overview.vue'
 
 afterEach(() => vi.unstubAllGlobals())
-function setup(options: { failHealth?: boolean; missingSnapshot?: boolean; total?: number; failInventory?: boolean } = {}) {
+const mapping = (alias: string) => ({ alias, status: 'mapped', method: '', confidence: '', candidate_ids: null, cluster_id: alias })
+function snapshotPage(count: number, partial?: boolean) {
+  const links = Array.from({ length: count }, (_, i) => ({ id: `l${i}`, namespace: 'messaging', workload_uid: `uid-${i}`, workload_name: `mm2-${i}`, source_alias: i % 2 ? 'mars' : 'charon', target_alias: 'moon', enabled: true, declared: true, observed: true, verified: false, stale: false, observed_at: '2026-10-20T00:00:00Z', source: mapping(i % 2 ? 'mars' : 'charon'), target: mapping('moon'), evidence: [], notes: [], runtime: {} }))
+  const nodes = [...['mars', 'charon', 'moon'].map(id => ({ id, kind: 'kafka', label: id })), ...links.map(l => ({ id: `w-${l.id}`, kind: 'workload', label: l.workload_name }))]
+  const edges = links.flatMap(l => [{ id: `i-${l.id}`, source: l.source_alias, target: `w-${l.id}`, link_id: l.id, relation: 'declared_input', stale: false, evidence: [] }, { id: `o-${l.id}`, source: `w-${l.id}`, target: 'moon', link_id: l.id, relation: 'declared_output', stale: false, evidence: [] }])
+  return { total: count, page: 1, page_size: 100, snapshot: { scope_id: 'scope-1', observed_at: '2026-10-20T00:00:00Z', attempted_at: '2026-10-20T00:05:00Z', synthetic: true, stale: !!partial, links, nodes, edges, issues: partial ? [{ code: 'TIMEOUT', namespace: 'messaging' }, { code: 'PARSE', namespace: 'messaging' }] : [] } }
+}
+function setup(options: { links?: number; partial?: boolean; failHealth?: boolean; missingSnapshot?: boolean; total?: number; failInventory?: boolean } = {}) {
   let healthCalls = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
     const url = String(input)
@@ -15,7 +22,8 @@ function setup(options: { failHealth?: boolean; missingSnapshot?: boolean; total
     const data = url.endsWith('/session') ? { user_id: 'operator', mode: 'mock' }
       : url.includes('/kafka/clusters?') ? { items: options.total === 0 ? [] : [{ id: 'cluster-1', display_name: 'Lab Kafka', environment: 'lab', room: 'test-room', enabled: true, status: 'unverified' }], total: options.total ?? 1 }
       : url.endsWith('/scopes') ? { items: [{ id: 'scope-1', synthetic: true }] }
-      : { total: 3, snapshot: { observed_at: '2026-10-20T00:00:00Z', synthetic: true, stale: false } }
+      : url.includes('/discovery/catalog') ? { items: [{ id: 'k1' }, { id: 'k2' }] }
+      : snapshotPage(options.links ?? 3, options.partial)
     if (options.missingSnapshot && url.includes('/snapshot?')) return new Response('{}', { status: 404 })
     return new Response(JSON.stringify(data))
   }))
@@ -39,7 +47,7 @@ it('shows a safe API failure and recovers when explicitly refreshed', async () =
   const wrapper = setup({ failHealth: true }); await flushPromises()
   expect(wrapper.text()).toContain('无法连接服务')
   expect(wrapper.text()).not.toContain('private-password')
-  await wrapper.get('[data-refresh]').trigger('click'); await flushPromises()
+  await wrapper.get('[data-reread]').trigger('click'); await flushPromises()
   expect(wrapper.get('[role="status"]').text()).toContain('进程可用')
   wrapper.unmount()
 })
@@ -70,4 +78,13 @@ it('keeps unavailable registration counts unknown and offers a retry', async () 
   expect(wrapper.text()).toContain('重试读取')
   expect(wrapper.get('[data-link-total]').text()).toBe('未知')
   wrapper.unmount()
+})
+
+it('dedupes 24 MM2 and reports one failed scope for partial collection without summing', async () => {
+  const wrapper = setup({ links: 24, partial: true }); await flushPromises()
+  expect(wrapper.get('[data-unverified-mm2]').text()).toBe('24')
+  expect(wrapper.get('[data-failed-scopes]').text()).toBe('1')
+  expect(wrapper.get('[data-kafka-total]').text()).toBe('2 个')
+  expect(wrapper.get('[data-partial]').text()).toContain('scope-1 / messaging')
+  expect(wrapper.text()).toContain('不提供相加总数')
 })
