@@ -18,7 +18,7 @@ export interface WorkloadClass { k8s_cluster:string;namespace:string;name:string
 export interface ScanSummary { k8s_cluster:string;namespaces:number;deployments:number;namespaces_with_mm2:number;confirmed:number;suspected:number }
 export interface Snapshot { scope_id:string;synthetic:boolean;observed_at:string;attempted_at:string;stale:boolean;nodes:GraphNode[];edges:GraphEdge[];links:Link[];issues:{code:string;namespace?:string;workload_uid?:string}[];removed_links?:Link[];workloads?:WorkloadClass[];scan?:ScanSummary }
 /** /discovery/scopes row; auto-only fields are absent for the legacy single scope. */
-export interface ScopeInfo { id:string;synthetic:boolean;k8s_cluster?:string;auto?:boolean;removed?:boolean;removed_at?:string;kite_error?:string }
+export interface ScopeInfo { id:string;synthetic:boolean;k8s_cluster?:string;auto?:boolean;removed?:boolean;removed_at?:string;kite_error?:string;namespaces?:string[];namespace_mode?:'allowlist'|'all_accessible' }
 /** One scope with its latest snapshot, or why none could be read (NO_SNAPSHOT = never collected). */
 export interface ScopeEntry { scope:ScopeInfo;snapshot?:Snapshot;error?:string }
 export interface Filters { room:string;environment:string }

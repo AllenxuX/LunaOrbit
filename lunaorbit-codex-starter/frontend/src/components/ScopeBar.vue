@@ -14,7 +14,7 @@ function pickCluster(v:string){emit('update:cluster',v);if(props.namespace&&!pro
       <strong data-scope-counts>扫描 {{ summary.clusters }} 个 K8s 集群 / {{ summary.namespaces }} 个命名空间，其中 {{ summary.withMM2 }} 个含 MM2</strong>
       <span v-if="summary.partial" class="scope-partial">部分统计</span>
       <span class="helper-text">最后采集 {{ time(observedAt) }}</span>
-      <button class="scope-refresh" :disabled="busy" data-scope-refresh @click="emit('refresh')">{{ busy?'刷新中…':'立即刷新' }}</button>
+      <button class="scope-refresh" :disabled="busy" data-scope-refresh @click="emit('refresh')">{{ busy?'采集中…':'重新采集全部范围' }}</button>
     </div>
     <div class="scope-line">
       <label>K8s 集群 <select data-scope-cluster :value="cluster" @change="pickCluster(($event.target as HTMLSelectElement).value)"><option value="">全部</option><option v-for="c in clusters" :key="c" :value="c">{{ c }}</option></select></label>

@@ -43,7 +43,7 @@ it('prioritizes cluster names and business details while keeping Kafka IDs out o
 })
 it('offers discovery when no snapshot exists and loads only after job completion',async()=>{
  const w=setup(true);await flushPromises();expect(w.text()).toContain('尚无发现快照')
- await w.get('[data-discover]').trigger('click');await flushPromises();expect(w.text()).toContain('mars');w.unmount()
+ await w.get('[data-collect]').trigger('click');await w.get('[data-collect-confirm]').trigger('click');await flushPromises();expect(w.text()).toContain('mars');w.unmount()
 })
 it('keeps unsaved layout on conflict and does not auto overwrite',async()=>{
  const w=setup();await flushPromises();await w.get('[data-move]').trigger('click')
@@ -276,7 +276,7 @@ it('MM2 page: link detail starts with evidence type and keeps enablement, status
  expect(w.get('[data-link-enablement]').text()).toBe('启用')
  expect(w.get('[data-link-status]').text()).toBe('状态未知')
  expect(w.get('[data-link-freshness]').text()).toBe('当前')
- expect(w.get('[data-link-facts]').text()).toContain('DefaultReplicationPolicy')
+ expect(w.get('[data-link-facts]').text()).toContain('添加源集群别名前缀');expect(w.get('[data-diagnostics]').text()).toContain('DefaultReplicationPolicy')
  expect(w.get('.evidence-panel').text()).not.toMatch(/×\d|已验证/)
  w.unmount()
 })
