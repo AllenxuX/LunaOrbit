@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { formatTime } from '../topology/time'
 import { computed } from 'vue'
 import type { ScopeSummary } from '../topology/scopes'
 const props=defineProps<{summary:ScopeSummary;clusters:string[];namespaces:{cluster:string;namespace:string}[];cluster:string;namespace:string;includeRemoved:boolean;observedAt:string;busy:boolean;dismissed:string[]}>()
 const emit=defineEmits<{'update:cluster':[string];'update:namespace':[string];'update:includeRemoved':[boolean];refresh:[];retry:[string];dismiss:[string]}>()
 const nsOptions=computed(()=>props.namespaces.filter(n=>!props.cluster||n.cluster===props.cluster))
 const fresh=computed(()=>props.summary.fresh.filter(c=>!props.dismissed.includes(c)))
-function time(v:string){const t=new Date(v);return v&&!Number.isNaN(t.getTime())?t.toLocaleString('zh-CN',{hour12:false}):'未知'}
+function time(v:string){return formatTime(v)}
 function pickCluster(v:string){emit('update:cluster',v);if(props.namespace&&!props.namespaces.some(n=>n.namespace===props.namespace&&(!v||n.cluster===v)))emit('update:namespace','')}
 </script>
 <template>

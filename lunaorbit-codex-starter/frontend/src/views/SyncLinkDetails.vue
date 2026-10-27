@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatTime } from '../topology/time'
 import { computed,onBeforeUnmount,shallowRef,watch } from 'vue'
 import { ensureSession,registryRequest,type Cluster,type ClusterPage } from '../api/registry'
 import { readSnapshot,type Snapshot,type Link,type Mapping } from '../api/topology'
@@ -13,7 +14,7 @@ const title=computed(()=>link.value?`${sourceName.value} → ${targetName.value}
 const status=computed(()=>link.value?linkStatus({...link.value,stale:link.value.stale||!!snapshot.value?.stale}):'')
 let epoch=0
 function clusterPath(mapping:Mapping){return mapping.status==='confirmed'&&mapping.registration_id?`/kafka/clusters/${encodeURIComponent(mapping.registration_id)}/details`:undefined}
-function observedTime(value:string){const date=new Date(value);return Number.isNaN(date.getTime())?'未获取':date.toLocaleString('zh-CN',{hour12:false})}
+function observedTime(value:string){return formatTime(value,'未获取')}
 async function allClusters(token:number){const rows:Cluster[]=[];for(let page=1;page<=100;page++){const result=await registryRequest<ClusterPage>(`/kafka/clusters?page=${page}&page_size=100`);if(token!==epoch)return[];rows.push(...result.items);if(rows.length>=result.total)return rows;if(!result.items.length)break}throw new Error('incomplete-clusters')}
 async function load(){
  const token=++epoch;busy.value=true;error.value='';snapshot.value=undefined;link.value=undefined;clusters.value=[]

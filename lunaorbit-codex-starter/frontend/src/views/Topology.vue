@@ -21,6 +21,7 @@ import { filterGraph,mappingLabel,mappingName,nodeIdentity,unknown } from '../to
 
 import { buildPresentation,focusPresentation,tracePaths } from '../topology/presentation'
 import { buildClusterPresentation,buildRelationPresentation,evidenceType,isDisabledLink,lineage,linkFacts,presentationFor,relationCounts,relationSummary } from '../topology/cluster-presentation'
+import { formatTime, validTime } from '../topology/time'
 import ReadActions from '../components/ReadActions.vue'
 import { inspect, scopeLabel } from '../topology/inspection'
 import { policyLabel, topicMatchLabel } from '../topology/policy'
@@ -197,7 +198,7 @@ const rooms=computed(()=>[...new Set(clusters.value.map(c=>c.room).filter(Boolea
 const environments=computed(()=>[...new Set(clusters.value.map(c=>c.environment).filter(Boolean))].sort())
 function message(e:unknown) {return e instanceof ApiError ? e.message : '无法完成操作，请稍后重试'}
 function clusterName(mapping:Snapshot['links'][number]['source']){return mappingName(mapping,clusters.value)}
-function observedTime(value:string){const time=new Date(value);return Number.isNaN(time.getTime())?'未知':time.toLocaleString('zh-CN',{hour12:false})}
+function observedTime(value:string){return formatTime(value)}
 function current(id:number){return !disposed&&epoch===id}
 async function allClusters() {
  const list:Cluster[]=[]
@@ -331,7 +332,7 @@ async function confirmMapping(alias:string):Promise<boolean>{
 }</script>
 <template>
   <section class="topology registry">
-    <header class="page-header"><div class="topology-heading"><h1>同步拓扑</h1><span v-if="snapshot" class="topology-updated">{{ snapshot.synthetic?'合成数据 · ':'' }}更新于 {{ observedTime(snapshot.observed_at) }}{{ snapshot.stale?' · 数据过期':'' }}</span></div><span v-if="isLab" class="status-pill">实验环境</span></header>
+    <header class="page-header"><div class="topology-heading"><h1>同步拓扑</h1><span v-if="snapshot" class="topology-updated">{{ snapshot.synthetic?'合成数据 · ':'' }}{{ validTime(snapshot.observed_at)?'更新于 '+observedTime(snapshot.observed_at):'未见成功采集' }}{{ snapshot.stale&&validTime(snapshot.observed_at)?' · 数据过期':'' }}</span></div><span v-if="isLab" class="status-pill">实验环境</span></header>
     <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <ReadActions :scope-label="collectScope" :busy="busy" :can-collect="!!scope&&runtime?.capabilities.discovery===true" @reread="confirmReload" @collect="discover" />
     <div v-if="inspection.failedScopes.length" class="partial-notice" data-partial role="status">局部采集失败：{{ inspection.failedScopes.map(f=>f.scope+(f.namespace?' / '+f.namespace:'')).join('、') }}。{{ inspection.failedScopes.every(f=>f.hasHistory)?'保留上次成功数据；':'部分范围无可用快照；' }}该范围运行状态未知，不判为链路故障。</div>

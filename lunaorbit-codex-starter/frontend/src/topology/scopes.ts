@@ -1,3 +1,4 @@
+import { validTime } from './time'
 import type { ScopeEntry, Snapshot, WorkloadClass } from '../api/topology'
 
 export interface ScopeOptions { includeRemoved:boolean }
@@ -13,7 +14,7 @@ const REASONS:Record<string,string>={TIMEOUT:'采集超时',NOT_FOUND:'Kite 已�
 export const isAutoMode=(entries:ScopeEntry[])=>entries.some(e=>e.scope.auto)
 const clusterOf=(e:ScopeEntry)=>e.scope.k8s_cluster??e.scope.id
 const active=(entries:ScopeEntry[])=>entries.filter(e=>!e.scope.removed)
-const lastSuccess=(s?:Snapshot)=>s&&!ZERO.test(s.observed_at)?s.observed_at:''
+const lastSuccess=(s?:Snapshot)=>s&&validTime(s.observed_at)?s.observed_at:''
 
 function failureOf(e:ScopeEntry):ScopeFailure|undefined {
  const base={scopeId:e.scope.id,cluster:clusterOf(e)}
@@ -26,7 +27,7 @@ function failureOf(e:ScopeEntry):ScopeFailure|undefined {
  if(!code)return undefined
  const reason=(REASONS[code]??`采集失败（${code}）`)+(scopeIssue?'':`：命名空间 ${nsIssue!.namespace}`)
  const last=lastSuccess(s)
- return {...base,reason,lastSuccess:last,hasHistory:!!last&&s.links.length>0}
+ return {...base,reason,lastSuccess:last,hasHistory:!!last}
 }
 
 export function scopeSummary(entries:ScopeEntry[]):ScopeSummary {

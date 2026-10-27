@@ -4,13 +4,13 @@ import Overview from './Overview.vue'
 
 afterEach(() => vi.unstubAllGlobals())
 const mapping = (alias: string) => ({ alias, status: 'mapped', method: '', confidence: '', candidate_ids: null, cluster_id: alias })
-function snapshotPage(count: number, partial?: boolean) {
+function snapshotPage(count: number, partial?: boolean, firstFail?: boolean) {
   const links = Array.from({ length: count }, (_, i) => ({ id: `l${i}`, namespace: 'messaging', workload_uid: `uid-${i}`, workload_name: `mm2-${i}`, source_alias: i % 2 ? 'mars' : 'charon', target_alias: 'moon', enabled: true, declared: true, observed: true, verified: false, stale: false, observed_at: '2026-10-20T00:00:00Z', source: mapping(i % 2 ? 'mars' : 'charon'), target: mapping('moon'), evidence: [], notes: [], runtime: {} }))
   const nodes = [...['mars', 'charon', 'moon'].map(id => ({ id, kind: 'kafka', label: id })), ...links.map(l => ({ id: `w-${l.id}`, kind: 'workload', label: l.workload_name }))]
   const edges = links.flatMap(l => [{ id: `i-${l.id}`, source: l.source_alias, target: `w-${l.id}`, link_id: l.id, relation: 'declared_input', stale: false, evidence: [] }, { id: `o-${l.id}`, source: `w-${l.id}`, target: 'moon', link_id: l.id, relation: 'declared_output', stale: false, evidence: [] }])
-  return { total: count, page: 1, page_size: 100, snapshot: { scope_id: 'scope-1', observed_at: '2026-10-20T00:00:00Z', attempted_at: '2026-10-20T00:05:00Z', synthetic: true, stale: !!partial, links, nodes, edges, issues: partial ? [{ code: 'TIMEOUT', namespace: 'messaging' }, { code: 'PARSE', namespace: 'messaging' }] : [] } }
+  return { total: count, page: 1, page_size: 100, snapshot: { scope_id: 'scope-1', observed_at: firstFail ? '0001-01-01T00:00:00Z' : '2026-10-20T00:00:00Z', attempted_at: '2026-10-20T00:05:00Z', synthetic: true, stale: !!partial, links, nodes, edges, issues: partial ? [{ code: 'TIMEOUT', namespace: 'messaging' }, { code: 'PARSE', namespace: 'messaging' }] : [] } }
 }
-function setup(options: { links?: number; partial?: boolean; failHealth?: boolean; missingSnapshot?: boolean; total?: number; failInventory?: boolean } = {}) {
+function setup(options: { firstFail?: boolean; links?: number; partial?: boolean; failHealth?: boolean; missingSnapshot?: boolean; total?: number; failInventory?: boolean } = {}) {
   let healthCalls = 0
   vi.stubGlobal('fetch', vi.fn(async (input: string) => {
     const url = String(input)
@@ -23,7 +23,7 @@ function setup(options: { links?: number; partial?: boolean; failHealth?: boolea
       : url.includes('/kafka/clusters?') ? { items: options.total === 0 ? [] : [{ id: 'cluster-1', display_name: 'Lab Kafka', environment: 'lab', room: 'test-room', enabled: true, status: 'unverified' }], total: options.total ?? 1 }
       : url.endsWith('/scopes') ? { items: [{ id: 'scope-1', synthetic: true }] }
       : url.includes('/discovery/catalog') ? { items: [{ id: 'k1' }, { id: 'k2' }] }
-      : snapshotPage(options.links ?? 3, options.partial)
+      : snapshotPage(options.links ?? 3, options.partial, options.firstFail)
     if (options.missingSnapshot && url.includes('/snapshot?')) return new Response('{}', { status: 404 })
     return new Response(JSON.stringify(data))
   }))
@@ -91,4 +91,18 @@ it('dedupes 24 MM2 and reports one failed scope for partial collection without s
   expect(wrapper.get('[data-kafka-total]').text()).toBe('2 个')
   expect(wrapper.get('[data-partial]').text()).toContain('scope-1 / messaging')
   expect(wrapper.text()).toContain('不提供相加总数')
+})
+
+it('first failed collection shows unknown counts and no fake success time', async () => {
+  const wrapper = setup({ links: 0, partial: true, firstFail: true }); await flushPromises()
+  expect(wrapper.get('[data-unverified-mm2]').text()).toBe('未知')
+  expect(wrapper.get('[data-link-total]').text()).toBe('未知')
+  expect(wrapper.get('[data-failed-scopes]').text()).toBe('1')
+  expect(wrapper.text()).toContain('未见成功采集')
+  expect(wrapper.text()).not.toContain('保留上次成功数据')
+  expect(wrapper.text()).not.toMatch(/0001|1\/1\/1/)
+})
+it('successful empty snapshot shows a real 0', async () => {
+  const wrapper = setup({ links: 0 }); await flushPromises()
+  expect(wrapper.get('[data-unverified-mm2]').text()).toBe('0'); expect(wrapper.get('[data-link-total]').text()).toBe('0')
 })

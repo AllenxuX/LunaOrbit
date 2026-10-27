@@ -9,6 +9,7 @@ import ResourceConfigs from '../components/workspace/ResourceConfigs.vue'
 import ResourceOperations from '../components/workspace/ResourceOperations.vue'
 import TopicLifecycle from '../components/workspace/TopicLifecycle.vue'
 import WorkspacePlanDialog from '../components/workspace/WorkspacePlanDialog.vue'
+import { formatTime } from '../topology/time'
 import { useRuntime } from '../composables/useRuntime'
 
 const props = defineProps<{ id: string; topicName: string }>()
@@ -73,7 +74,7 @@ onBeforeUnmount(() => { ++epoch })
     <header class="page-header"><div class="topic-title"><h1>{{ topicName }}</h1><span v-if="topic" class="status-pill status-pill--muted">{{ topic.internal ? '内部 Topic' : '业务 Topic' }}</span><span v-if="meta?.synthetic" class="status-pill status-pill--warning">演示数据</span></div><div class="topic-actions"><router-link v-if="informationMode" :to="{path: '/topic-lineage', query: {cluster_id: id, topic: topicName}}">查看链路</router-link><button :disabled="busy" @click="load">刷新</button><details v-if="canManage" class="topic-more"><summary>更多操作</summary><button class="danger-action" data-delete-topic @click="selectTab('delete')">删除 Topic</button></details></div></header>
     <p v-if="busy" role="status">加载中…</p><p v-if="error" role="alert">{{ error }}</p>
     <template v-if="topic && meta">
-      <p class="topic-scope">对象范围：{{ cluster?.display_name || id }} / 此 Topic · 元数据采集时间 {{ evidence?.observed_at || '未知' }}{{ evidence?.stale ? '（已过期）' : '' }} · 只读</p>
+      <p class="topic-scope">对象范围：{{ cluster?.display_name || id }} / 此 Topic · 元数据采集时间 {{ formatTime(evidence?.observed_at) }}{{ evidence?.stale ? '（已过期）' : '' }} · 只读</p>
       <dl class="topic-summary" data-topic-summary><div><dt>分区数</dt><dd>{{ topic.partitions.length }} 个分区</dd></div><div><dt>各分区副本数 RF</dt><dd>{{ replicaCount === '未知' ? '未知' : `每分区 ${replicaCount} 个副本` }}</dd></div><div><dt>副本同步完整的分区</dt><dd>{{ inSync }} <span>/ {{ topic.partitions.length }}</span></dd></div><div><dt>最小同步副本数</dt><dd data-min-isr>{{ minIsr }}</dd></div><div><dt>消息保留时间</dt><dd data-retention>{{ retention }}</dd></div><div><dt>清理方式</dt><dd data-cleanup>{{ cleanup }}</dd></div></dl>
       <p v-if="configError" class="config-partial" data-config-partial role="status">配置子查询失败：{{ configError }}。保留已读取的分区元数据；配置值显示“未读取”，不填默认值。</p>
       <p class="helper-text">字段单位不同，不汇总相加；RF 来自各分区元数据，不由集群默认值推断。</p>
@@ -83,7 +84,7 @@ onBeforeUnmount(() => { ++epoch })
       <ResourceConfigs v-else-if="tab==='configs'" :cluster-id="id" :resource="resource" :meta="meta" :actor-id="actorId" :show-operations="false" :read-only="informationMode || topic.internal" @submitted="selectTab('operations')" />
       <TopicLifecycle v-else-if="tab==='replicas' || tab==='delete'" :key="tab" :cluster-id="id" :topic="topic" :meta="meta" :actor-id="actorId" :show-operations="false" :action="tab==='delete'?'topic_delete':undefined" :hide-delete="tab==='replicas'" @submitted="selectTab('operations')" />
       <ResourceOperations v-else-if="tab==='operations'" :cluster-id="id" :resource="resource" :meta="meta" :actor-id="actorId" />
-      <details v-if="evidence" class="topic-diagnostics"><summary>查询信息</summary><p>{{ evidence.synthetic?'演示数据':'Kafka 实际查询' }} · {{ evidence.observed_at || '时间未知' }} · {{ evidence.stale?'已过期':'本次查询' }}</p></details>
+      <details v-if="evidence" class="topic-diagnostics"><summary>查询信息</summary><p>{{ evidence.synthetic?'演示数据':'Kafka 实际查询' }} · {{ formatTime(evidence.observed_at, '时间未知') }} · {{ evidence.stale?'已过期':'本次查询' }}</p></details>
       <WorkspacePlanDialog v-if="!informationMode" :cluster-id="id" :input="input" :meta="meta" :actor-id="actorId" @close="input=null" @completed="refreshTopic" />
     </template>
   </section>

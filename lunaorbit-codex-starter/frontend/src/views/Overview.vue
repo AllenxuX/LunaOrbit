@@ -5,7 +5,8 @@ import ReadActions from '../components/ReadActions.vue'
 import { ApiError, getHealth } from '../api/client'
 import { ensureSession, probeStatus, registryRequest, type Cluster, type ClusterPage } from '../api/registry'
 import { readSnapshot, scopePath, type Job, type ScopeEntry, type ScopeInfo } from '../api/topology'
-import { inspect, scopeLabel, type Inspection } from '../topology/inspection'
+import { collectMessage, inspect, scopeLabel, type Inspection } from '../topology/inspection'
+import { formatTime } from '../topology/time'
 import { useRuntime } from '../composables/useRuntime'
 
 const { runtime } = useRuntime()
@@ -19,7 +20,7 @@ const enabledLabel = computed(() => registeredTotal.value !== null && clusters.v
 const sourceLabel = computed(() => runtime.value?.information_mode ? '内网信息平台' : runtime.value?.mode === 'admin-lab' ? '实验管理环境' : runtime.value?.mode === 'readonly-lab' ? '只读实验环境' : runtime.value?.mode === 'mock' ? 'Mock 合成数据' : runtime.value?.mode === 'disabled' ? '数据源已禁用' : '数据源待确认')
 const isMock = computed(() => runtime.value?.mode === 'mock')
 const scopeText = computed(() => scopes.value.filter(s => !s.removed).map(scopeLabel).join('；'))
-const observedAt = computed(() => summary.value?.oldestObservedAt ? new Date(summary.value.oldestObservedAt).toLocaleString('zh-CN', { hour12: false }) : '')
+const observedAt = computed(() => summary.value?.oldestObservedAt ? formatTime(summary.value.oldestObservedAt) : '')
 const num = (v: number | null | undefined) => v ?? '未知'
 let epoch = 0, disposed = false
 const current = (token: number) => !disposed && token === epoch
@@ -43,7 +44,7 @@ async function readDiscovery(token: number) {
       if (!current(token)) return
     }
     summary.value = inspect(entries)
-    snapshotMessage.value = !summary.value.readScopes ? (entries.every(e => e.error === 'NO_SNAPSHOT') ? '尚无发现快照，可重新采集' : '发现快照读取失败，数量未知') : summary.value.synthetic ? '合成发现数据，不代表实际链路健康' : '配置与运行资源已读取；同步健康未验证'
+    snapshotMessage.value = !summary.value.readScopes ? (entries.every(e => e.error === 'NO_SNAPSHOT') ? '尚无发现快照，可重新采集' : entries.some(e => e.snapshot) ? '未见成功采集，数量未知' : '发现快照读取失败，数量未知') : summary.value.synthetic ? '合成发现数据，不代表实际链路健康' : '配置与运行资源已读取；同步健康未验证'
   } catch (error) { if (current(token)) snapshotMessage.value = safeError(error) }
   try { const body = await registryRequest<{ items?: unknown[] }>('/discovery/catalog'); if (current(token) && Array.isArray(body.items)) kafkaTotal.value = body.items.length } catch { /* unknown stays null */ }
 }
@@ -77,9 +78,8 @@ async function collect() {
     } catch (error) { failures.push(`${scope.id}：${error instanceof ApiError && error.status === 429 ? '请求过于频繁，请稍后再试' : safeError(error)}`) }
   }
   collecting.value = false
-  collectNotice.value = failures.length ? `重新采集结束，部分范围未完成：${failures.join('；')}。已保留上次成功数据。` : '重新采集完成；同步健康仍未验证。'
   await refresh()
-}
+  collectNotice.value = collectMessage(failures, summary.value)}
 onMounted(refresh)
 onUnmounted(() => { disposed = true; ++epoch })
 </script>
@@ -104,7 +104,7 @@ onUnmounted(() => { disposed = true; ++epoch })
           <span><strong data-failed-scopes>{{ summary ? summary.failedScopes.length : '未知' }}</strong>采集失败 / 范围</span>
           <span><strong data-stale-scopes>{{ summary ? summary.staleScopes.length : '未知' }}</strong>数据过期 / 范围</span>
         </div>
-        <p class="muted">各指标按各自单位阅读；未验证 MM2、失败范围、过期范围可能交叠，不提供相加总数。<span v-if="summary && summary.unreadScopes">数量仅覆盖已读取的 {{ summary.readScopes }} 个范围<template v-if="summary.uncollectedScopes.length">（{{ summary.uncollectedScopes.length }} 个范围尚未采集）</template>。</span></p>
+        <p class="muted">各指标按各自单位阅读；未验证 MM2、失败范围、过期范围可能交叠，不提供相加总数。<span v-if="summary && summary.unreadScopes && summary.readScopes">数量仅覆盖已读取的 {{ summary.readScopes }} 个范围<template v-if="summary.uncollectedScopes.length">（{{ summary.uncollectedScopes.length }} 个范围尚未采集）</template>。</span></p>
       </template>
     </section>
     <div class="dashboard-columns">
@@ -113,7 +113,7 @@ onUnmounted(() => { disposed = true; ++epoch })
         <div class="table-scroll">
           <table class="data-table">
             <thead><tr><th>对象与问题</th><th>证据 / 下一步</th><th /></tr></thead><tbody>
-              <tr v-for="f in summary?.failedScopes ?? []" :key="f.scope + (f.namespace ?? '')" data-review-failed><td class="long-name">{{ f.scope }}{{ f.namespace ? ' / ' + f.namespace : '' }}<br><small>采集失败</small></td><td>{{ f.reason }}{{ f.observedAt ? ' · 上次成功 ' + new Date(f.observedAt).toLocaleString('zh-CN', { hour12: false }) : '' }}</td><td><router-link to="/topology">查看范围</router-link></td></tr>
+              <tr v-for="f in summary?.failedScopes ?? []" :key="f.scope + (f.namespace ?? '')" data-review-failed><td class="long-name">{{ f.scope }}{{ f.namespace ? ' / ' + f.namespace : '' }}<br><small>采集失败</small></td><td>{{ f.reason }} · {{ f.hasHistory ? '上次成功 ' + formatTime(f.observedAt) + '（旧数据，可能过期）' : '未见成功采集' }}{{ f.attemptedAt ? ' · 最近尝试 ' + formatTime(f.attemptedAt) : '' }}</td><td><router-link to="/topology">查看范围</router-link></td></tr>
               <tr v-for="u in summary?.uncollectedScopes ?? []" :key="'u' + u" data-review-uncollected><td class="long-name">{{ u }}<br><small>尚未采集</small></td><td>该范围还没有发现快照；不是采集失败，数量未知</td><td><router-link to="/topology">去重新采集</router-link></td></tr>
               <tr v-if="summary?.unverifiedMm2"><td>{{ summary.unverifiedMm2 }} 个 MM2 含未验证关系</td><td>配置已读取；不等同于消息已到达</td><td><router-link to="/topology">查看同步关系</router-link></td></tr>
               <tr v-if="summary && !summary.failedScopes.length && !summary.uncollectedScopes.length && !summary.unverifiedMm2"><td colspan="3">当前已读取范围内没有待复核项；这不是“没有故障”的证明。</td></tr>
