@@ -28,3 +28,14 @@ describe('inspection summary', () => {
     expect(scopeLabel({ id: 's', synthetic: false, k8s_cluster: 'k', namespace_mode: 'all_accessible' })).toBe('k · s / 全部可访问 Namespace')
   })
 })
+
+describe('never-collected scopes', () => {
+  it('NO_SNAPSHOT is "not yet collected", not a failure', () => {
+    const r = inspect([{ scope: { id: 'new', synthetic: false }, error: 'NO_SNAPSHOT' }, { scope: { id: 'b', synthetic: false }, snapshot: snap([link(1)]) }])
+    expect(r.failedScopes).toEqual([]); expect(r.uncollectedScopes).toEqual(['new'])
+  })
+  it('real failure with history keeps last success, without history says so', () => {
+    const r = inspect([{ scope: { id: 'a', synthetic: false }, error: 'READ_FAILED' }, { scope: { id: 'b', synthetic: false }, snapshot: snap([link(1)], { issues: [{ code: 'TIMEOUT', namespace: 'x' }] }) }])
+    expect(r.failedScopes.map(f => [f.scope, f.hasHistory])).toEqual([['a', false], ['b', true]])
+  })
+})

@@ -25,3 +25,11 @@ it('does not present stale snapshot readiness as current',()=>{
  expect(w.text()).toContain('运行数据已过期')
  expect(w.text()).not.toContain('就绪 1 / 1');expect(w.text()).not.toContain('链路已验证')
 })
+
+it('shows naming policy in plain language with the raw class below; unknown is not guessed',()=>{
+ const known=task('one','uid');known.policy='org.apache.kafka.connect.mirror.IdentityReplicationPolicy'
+ const unknown=task('two','uid2');unknown.policy='com.example.kafka.CustomReplicationPolicy'
+ const w=mount(TopologyTasks,{props:{links:[known,unknown],registrations,scope:'synthetic'},global:{stubs:{RouterLink:true}}})
+ const p=w.findAll('[data-task-policy]').map(x=>x.text());expect(p).toEqual(['保留源 Topic 名称','未识别的命名策略，含义待确认'])
+ expect(w.findAll('[data-task-policy-raw]').map(x=>x.text())).toEqual([known.policy,unknown.policy])
+})

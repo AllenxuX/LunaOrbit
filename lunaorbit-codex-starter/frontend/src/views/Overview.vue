@@ -92,7 +92,7 @@ onUnmounted(() => { disposed = true; ++epoch })
     </header>
     <ReadActions :scope-label="scopeText" :busy="loading || collecting" :can-collect="runtime?.capabilities.discovery === true && scopes.some(s => !s.synthetic && !s.removed)" @reread="refresh" @collect="collect" />
     <p v-if="collectNotice" class="collect-notice" role="status">{{ collectNotice }}</p>
-    <div v-if="summary && summary.failedScopes.length" class="partial-notice" data-partial role="status">局部采集失败：{{ summary.failedScopes.map(f => f.scope + (f.namespace ? ' / ' + f.namespace : '')).join('、') }}。保留上次成功数据；该范围运行状态未知，不判为链路故障。</div>
+    <div v-if="summary && summary.failedScopes.length" class="partial-notice" data-partial role="status">局部采集失败：{{ summary.failedScopes.map(f => f.scope + (f.namespace ? ' / ' + f.namespace : '')).join('、') }}。{{ summary.failedScopes.every(f => f.hasHistory) ? '保留上次成功数据；' : summary.failedScopes.some(f => f.hasHistory) ? '有旧快照的范围保留上次成功数据，其余无可用数据；' : '无可用快照；' }}该范围运行状态未知，不判为链路故障。</div>
     <section class="panel conclusion" aria-label="巡检结论" data-conclusion>
       <h2>巡检结论</h2>
       <p v-if="loading && !summary" role="status">正在读取发现数据…（首次加载不显示 0）</p>
@@ -104,7 +104,7 @@ onUnmounted(() => { disposed = true; ++epoch })
           <span><strong data-failed-scopes>{{ summary ? summary.failedScopes.length : '未知' }}</strong>采集失败 / 范围</span>
           <span><strong data-stale-scopes>{{ summary ? summary.staleScopes.length : '未知' }}</strong>数据过期 / 范围</span>
         </div>
-        <p class="muted">各指标按各自单位阅读；未验证 MM2、失败范围、过期范围可能交叠，不提供相加总数。<span v-if="summary && !summary.complete">数量仅覆盖已读取的 {{ summary.readScopes }} 个范围。</span></p>
+        <p class="muted">各指标按各自单位阅读；未验证 MM2、失败范围、过期范围可能交叠，不提供相加总数。<span v-if="summary && summary.unreadScopes">数量仅覆盖已读取的 {{ summary.readScopes }} 个范围<template v-if="summary.uncollectedScopes.length">（{{ summary.uncollectedScopes.length }} 个范围尚未采集）</template>。</span></p>
       </template>
     </section>
     <div class="dashboard-columns">
@@ -114,8 +114,9 @@ onUnmounted(() => { disposed = true; ++epoch })
           <table class="data-table">
             <thead><tr><th>对象与问题</th><th>证据 / 下一步</th><th /></tr></thead><tbody>
               <tr v-for="f in summary?.failedScopes ?? []" :key="f.scope + (f.namespace ?? '')" data-review-failed><td class="long-name">{{ f.scope }}{{ f.namespace ? ' / ' + f.namespace : '' }}<br><small>采集失败</small></td><td>{{ f.reason }}{{ f.observedAt ? ' · 上次成功 ' + new Date(f.observedAt).toLocaleString('zh-CN', { hour12: false }) : '' }}</td><td><router-link to="/topology">查看范围</router-link></td></tr>
+              <tr v-for="u in summary?.uncollectedScopes ?? []" :key="'u' + u" data-review-uncollected><td class="long-name">{{ u }}<br><small>尚未采集</small></td><td>该范围还没有发现快照；不是采集失败，数量未知</td><td><router-link to="/topology">去重新采集</router-link></td></tr>
               <tr v-if="summary?.unverifiedMm2"><td>{{ summary.unverifiedMm2 }} 个 MM2 含未验证关系</td><td>配置已读取；不等同于消息已到达</td><td><router-link to="/topology">查看同步关系</router-link></td></tr>
-              <tr v-if="summary && !summary.failedScopes.length && !summary.unverifiedMm2"><td colspan="3">当前已读取范围内没有待复核项；这不是“没有故障”的证明。</td></tr>
+              <tr v-if="summary && !summary.failedScopes.length && !summary.uncollectedScopes.length && !summary.unverifiedMm2"><td colspan="3">当前已读取范围内没有待复核项；这不是“没有故障”的证明。</td></tr>
               <tr v-if="!summary && !loading"><td colspan="3">尚无可显示的发现数据；数量为未知，不显示为 0。</td></tr>
             </tbody>
           </table>

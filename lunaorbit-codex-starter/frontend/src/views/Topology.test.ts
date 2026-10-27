@@ -305,8 +305,8 @@ const menuItems=(w:ReturnType<typeof setup>)=>w.findAll('.more-menu > *').map(e=
 const tab=async(w:ReturnType<typeof setup>,m:string)=>{await w.get(`[data-mode="${m}"]`).trigger('click');await flushPromises()}
 it('LUNA-34 menu items and order per tab, mock and non-mock',async()=>{
  const w=setup(false,false,'',{},'mm2');await flushPromises()
- expect(menuItems(w)).toEqual(['显示禁用任务（0）','整理布局','保存个人视图','重新加载视图','视图版本','Mock'])
- await tab(w,'relations');expect(menuItems(w)).toEqual(['显示禁用关系（0）','整理布局','保存个人视图','重新加载视图','视图版本','Mock'])
+ expect(menuItems(w)).toEqual(['显示禁用任务（0）','整理布局','恢复默认布局','保存个人视图','重新加载视图','视图版本','Mock'])
+ await tab(w,'relations');expect(menuItems(w)).toEqual(['显示禁用关系（0）','整理布局','恢复默认布局','保存个人视图','重新加载视图','视图版本','Mock'])
  for(const m of ['instances','tasks']){await tab(w,m);expect(menuItems(w)).toEqual(['显示禁用任务（0）','重新加载视图','Mock'])}
  w.unmount()
  testRuntime.value.mode='readonly-lab';const r=setup(false,false,'',{},'tasks');await flushPromises()
@@ -341,4 +341,15 @@ it('LUNA-34 reload with unsaved changes asks for confirmation',async()=>{
  ask.mockReturnValue(true);await w.get('[data-reload-view]').trigger('click');await flushPromises()
  expect(w.find('[data-unsaved]').exists()).toBe(false)
  w.unmount()
+})
+
+it('restore default re-arranges after confirmation, keeps other views and never saves silently',async()=>{
+ const w=setup(false,false,'',{'chain:source':{x:9,y:9},'relations:source':{x:1,y:1}},'relations');await flushPromises()
+ vi.stubGlobal('confirm',vi.fn(()=>false));await w.get('[data-restore-default]').trigger('click');await flushPromises()
+ expect(vi.mocked(fetch).mock.calls.some(c=>c[1]?.method==='PUT')).toBe(false);expect(w.find('[data-unsaved]').exists()).toBe(false)
+ vi.stubGlobal('confirm',vi.fn(()=>true));await w.get('[data-restore-default]').trigger('click');await flushPromises()
+ expect(vi.mocked(fetch).mock.calls.some(c=>c[1]?.method==='PUT')).toBe(false);expect(w.text()).toContain('已恢复默认布局（未保存）')
+ await w.get('[data-save]').trigger('click');await flushPromises()
+ const body=JSON.parse(vi.mocked(fetch).mock.calls.find(c=>c[1]?.method==='PUT')?.[1]?.body as string)
+ expect(body.positions['relations:source']).toEqual({x:24,y:24});expect(body.positions['chain:source']).toEqual({x:9,y:9});w.unmount()
 })
