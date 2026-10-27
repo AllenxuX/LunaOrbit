@@ -1,5 +1,14 @@
 # 开发日志
 
+## LUNA-UX-05 · UX-v2 后端与契约
+
+- 唯一契约：`docs/UX_V2_API_CONTRACT.md`；复用发现任务/快照、目录、Topic链路与分离的Topic配置查询，不新增健康或逐消息接口。
+- 最小实现：Scopes公开namespaces和namespace_mode，准确确认整个scope采集边界；不增加namespace局部重试。只改后端/测试/文档，不部署、不改依赖或基础设施。
+- TDD：TestUXScopeCollectionRange先因namespace_mode缺失失败，再实现通过。全量首跑暴露两个旧JSON精确断言，针对新增字段更新期望后通过。
+- 实际验证：`go test ./...` exit 0；`go vet ./...` exit 0；`go test ./internal/discovery -run 'TestUXScopeCollectionRange|TestDiscoveryHTTPUsesRegistryIdentityAndPagination' -count=1 -v` exit 0；`git diff --check`通过。Go使用 `/opt/homebrew/opt/go@1.25/bin/go`。
+- 完整日志：`/Users/xuallen/.hermes/profiles/rd-dev/cache/scratch/LUNA-UX-05-go-test.log`、同目录 `LUNA-UX-05-go-vet.log`、`LUNA-UX-05-smoke.log`。
+- 限制：未执行真实环境采集/部署/独立QA；PG真实测试仍取决于原有测试环境变量，默认通过不代表真实PG验收。快照stale不是自动TTL；链路生成时间不是发现时间；配置响应无采集时间。重新读取链路/对象可能访问Kafka只读元数据，不能说完全不访问外部。
+
 ## 2026-10-19 · Phase 00 工程骨架
 
 状态：Phase 00 已完成。首次本机应用验证后缺少 Docker，随后在用户明确授权的 SSH 实验机补齐数据库运行验收，见文末追加记录。未进入 Phase 01。

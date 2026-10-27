@@ -79,15 +79,17 @@ type Service struct {
 type ClusterEntry struct{ Name, Error string }
 
 // ScopeInfo is the public scope listing. Auto-only fields are omitted for
-// static scopes, so the legacy listing is unchanged.
+// static scopes. Namespace metadata describes the actual collection boundary.
 type ScopeInfo struct {
-	ID          string     `json:"id"`
-	Synthetic   bool       `json:"synthetic"`
-	KubeCluster string     `json:"k8s_cluster,omitempty"`
-	Auto        bool       `json:"auto,omitempty"`
-	Removed     bool       `json:"removed,omitempty"`
-	RemovedAt   *time.Time `json:"removed_at,omitempty"`
-	KiteError   string     `json:"kite_error,omitempty"`
+	Namespaces    []string   `json:"namespaces"`
+	NamespaceMode string     `json:"namespace_mode"`
+	ID            string     `json:"id"`
+	Synthetic     bool       `json:"synthetic"`
+	KubeCluster   string     `json:"k8s_cluster,omitempty"`
+	Auto          bool       `json:"auto,omitempty"`
+	Removed       bool       `json:"removed,omitempty"`
+	RemovedAt     *time.Time `json:"removed_at,omitempty"`
+	KiteError     string     `json:"kite_error,omitempty"`
 }
 
 func NewService(store Store, scopes []resource.Scope, factory SourceFactory, lookup RegistrationLookup) *Service {
@@ -287,8 +289,9 @@ func (s *Service) Scopes(actor Actor) ([]ScopeInfo, error) {
 	defer s.scopeMu.RUnlock()
 	result := make([]ScopeInfo, 0, len(s.scopes))
 	for _, scope := range s.scopes {
-		info := ScopeInfo{ID: scope.ID, Synthetic: scope.Synthetic}
+		info := ScopeInfo{ID: scope.ID, Synthetic: scope.Synthetic, Namespaces: append([]string{}, scope.Namespaces...), NamespaceMode: "allowlist"}
 		if scope.Auto {
+			info.NamespaceMode = "all_accessible"
 			info.KubeCluster, info.Auto, info.KiteError = scope.Cluster, true, s.kiteErr[scope.ID]
 			if at, gone := s.removed[scope.ID]; gone {
 				at := at

@@ -28,7 +28,7 @@ func TestLabDiscoveryLegacySingleScopeIsUnchanged(t *testing.T) {
 	}
 	defer s.Close()
 	raw, _ := json.Marshal(scopeJSON(t, s))
-	if string(raw) != `[{"id":"readonly-lab","synthetic":false}]` {
+	if string(raw) != `[{"namespaces":["luna-kafka"],"namespace_mode":"allowlist","id":"readonly-lab","synthetic":false}]` {
 		t.Fatalf("legacy scopes changed: %s", raw)
 	}
 }

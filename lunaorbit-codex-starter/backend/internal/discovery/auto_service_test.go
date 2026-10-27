@@ -127,7 +127,7 @@ func TestSyncClustersNeverTouchesStaticScopesAndLegacyListingIsUnchanged(t *test
 	s.SyncClusters(nil, time.Now())
 	rows, _ := s.Scopes(autoActor)
 	raw, _ := json.Marshal(rows)
-	if !strings.Contains(string(raw), `{"id":"readonly-lab","synthetic":false}`) {
+	if !strings.Contains(string(raw), `{"namespaces":["luna-kafka"],"namespace_mode":"allowlist","id":"readonly-lab","synthetic":false}`) {
 		t.Fatalf("legacy scope listing changed: %s", raw)
 	}
 	for _, r := range rows {
