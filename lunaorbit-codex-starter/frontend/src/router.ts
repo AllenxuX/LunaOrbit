@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { sanitizeAddress } from './topology/unregistered'
-import Overview from './views/Overview.vue'
 import NotFound from './views/NotFound.vue'
 import Clusters from './views/Clusters.vue'
 import { getRuntime } from './api/runtime'
@@ -8,7 +7,7 @@ import { getRuntime } from './api/runtime'
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: Overview },
+    { path: '/', redirect: '/topology' },
     { path: '/kafka/clusters/:id/details', component: () => import('./views/KafkaWorkspace.vue'), props: true },
     { path: '/kafka/clusters/:id/topics/:topicName', component: () => import('./views/TopicDetails.vue'), props: true },
     { path: '/kafka/clusters/:id/brokers/:brokerId', component: () => import('./views/BrokerDetails.vue'), props: true },

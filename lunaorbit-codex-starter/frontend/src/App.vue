@@ -9,14 +9,13 @@ const { runtime, loading } = provideRuntime()
 const navigationOpen = shallowRef(false)
 const collapsed = shallowRef(false)
 const allNavigation = [
-  { to: '/', label: '运维总览', icon: 'overview', group: '工作空间' },
+  { to: '/topology', label: '同步拓扑', icon: 'topology', group: '工作空间' },
   { to: '/kafka/clusters', label: 'Kafka 集群', icon: 'database', group: '资源管理' },
-  { to: '/topology', label: '同步拓扑', icon: 'topology', group: '' },
   { to: '/security', label: '身份与权限', icon: 'shield', group: '运维治理' },
   { to: '/access-control', label: '平台访问控制', icon: 'shield', group: '' },
   { to: '/changes', label: '变更管理', icon: 'changes', group: '' },
 ]
-const navigation = computed(() => !runtime.value ? allNavigation.slice(0, 3) : runtime.value.information_mode ? [allNavigation[0]!, allNavigation[2]!, { to: '/topic-lineage', label: 'Topic 链路', icon: 'topology', group: '' }, { to: '/applications', label: '应用信息', icon: 'database', group: '' }] : allNavigation)
+const navigation = computed(() => !runtime.value ? allNavigation.slice(0, 2) : runtime.value.information_mode ? [{ ...allNavigation[0]!, group: '' }, { to: '/topic-lineage', label: 'Topic 链路', icon: 'topology', group: '' }, { to: '/applications', label: '应用信息', icon: 'database', group: '' }] : allNavigation)
 function active(path: string) {
   if (path === '/security') return route.path === '/security' || route.path.endsWith('/security')
   if (path === '/kafka/clusters') return route.path.startsWith(path) && !route.path.endsWith('/security')
@@ -28,11 +27,11 @@ watch(() => route.fullPath, () => { navigationOpen.value = false })
 </script>
 
 <template>
-  <div class="admin-shell" :class="{ 'sidebar-collapsed': collapsed, 'navigation-open': navigationOpen }" @keydown.esc="navigationOpen = false">
+  <div class="admin-shell" :class="{ 'compact-shell': runtime?.information_mode, 'sidebar-collapsed': collapsed, 'navigation-open': navigationOpen }" @keydown.esc="navigationOpen = false">
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <button v-if="navigationOpen" class="navigation-scrim" aria-label="关闭导航菜单" @click="navigationOpen = false" />
     <aside id="admin-sidebar" class="admin-sidebar" aria-label="控制台导航">
-      <router-link class="brand" to="/" aria-label="LunaOrbit 运维总览">
+      <router-link class="brand" to="/topology" aria-label="LunaOrbit 同步拓扑">
         <span class="brand-mark"><svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true"><ellipse cx="16" cy="16" rx="13" ry="6.5" transform="rotate(-35 16 16)" stroke="currentColor" stroke-width="1.7" /><circle cx="16" cy="16" r="5" fill="currentColor" /><circle cx="27" cy="10" r="2.5" fill="#75a6ff" /></svg></span>
         <span class="brand-copy">LunaOrbit<small>{{ runtime?.information_mode ? 'Kafka 信息平台' : 'Kafka 运维控制台' }}</small></span>
       </router-link>

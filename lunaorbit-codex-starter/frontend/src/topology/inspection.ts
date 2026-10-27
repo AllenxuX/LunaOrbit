@@ -21,7 +21,7 @@ function clusterKey(m: { registration_id?: string; cluster_id?: string; alias: s
 
 export function scopeLabel(s: ScopeInfo) {
   const ns = s.namespace_mode === 'all_accessible' ? '全部可访问 Namespace' : s.namespaces?.length ? s.namespaces.join(', ') : 'Namespace 未读取'
-  return `${s.k8s_cluster ? `${s.k8s_cluster} · ` : ''}${s.id} / ${ns}`
+  return `${s.k8s_cluster || '当前发现范围'} / ${ns}`
 }
 
 export function inspect(entries: ScopeEntry[]): Inspection {

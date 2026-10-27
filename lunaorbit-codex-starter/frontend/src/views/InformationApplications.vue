@@ -26,7 +26,7 @@ async function loadClusters() {
   } catch { error.value = '集群选项加载失败，请重读重试。' }
 }
 function open(item?: InformationApplication) { editing.value = item; formOpen.value = true }
-async function saved() { formOpen.value = false; editing.value = undefined; notice.value = '应用信息已保存，所有访客共享此记录。'; await load() }
+async function saved() { formOpen.value = false; editing.value = undefined; notice.value = '已保存'; await load() }
 async function remove() {
   if (!deleting.value || busy.value) return
   busy.value = true; error.value = ''
@@ -41,16 +41,14 @@ onBeforeUnmount(() => { ++epoch })
 </script>
 <template>
   <section class="registry information-applications">
-    <header class="page-header"><div><h1>应用信息</h1><p>登记业务应用、负责人和 Kafka 生产消费关系。登记关系不等于实际生产消费流量。</p></div><div class="page-actions"><button :disabled="busy" @click="load(); loadClusters()">重读已有数据</button><button class="button-primary" @click="open()">新增应用</button></div></header>
-    <p v-if="error" class="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
+    <form class="apps-bar" data-apps-bar @submit.prevent="page = 1; load()"><h1>应用信息</h1><input v-model="query" aria-label="搜索应用" placeholder="搜索应用 / 负责人 / 环境"><button :disabled="busy">搜索</button><span class="bar-spacer" /><button type="button" class="button-primary" @click="open()">登记应用</button></form>
+    <p v-if="error" class="error" role="alert">{{ error }} <button :disabled="busy" @click="load(); loadClusters()">重试读取</button></p><p v-if="notice" role="status">{{ notice }}</p>
     <section class="panel">
-      <div class="panel-header"><h2>业务应用</h2><span class="helper-text">共 {{ total }} 个 · 所有访客共享</span></div>
-      <form class="filter-bar" @submit.prevent="page = 1; load()"><label>筛选 <input v-model="query" placeholder="名称 / 负责人 / 环境"></label><button :disabled="busy">查询</button></form>
       <div class="table-scroll">
         <table class="data-table">
           <thead><tr><th>应用 / 环境</th><th>负责人 / 部署位置</th><th>生产消费关系</th><th>说明</th><th>更新时间</th><th>操作</th></tr></thead><tbody>
             <tr v-for="item in items" :id="`application-${item.id}`" :key="item.id" :data-information-application="item.id"><td><strong>{{ item.name }}</strong><br><span class="helper-text">{{ item.environment || '环境未登记' }}</span></td><td>{{ item.owner || '待登记' }}<br><span class="helper-text">{{ item.location || '位置未登记' }}</span></td><td><ul v-if="item.relations?.length" class="application-relations"><li v-for="(relation,index) in item.relations" :key="index"><span class="status-pill status-pill--muted">人工登记</span><span v-if="relation.account">账号：{{ relation.account }} · </span><span v-if="relation.client_id">Client ID：{{ relation.client_id }} · </span> {{ clusterName(relation.cluster_id) }} / {{ relation.topic }} · {{ relation.mode === 'produce' ? '生产' : '消费' }}<small v-if="relation.consumer_group"> · {{ relation.consumer_group }}</small></li></ul><span v-else class="helper-text">尚未登记关联</span></td><td>{{ item.description || '—' }}</td><td>{{ updatedTime(item.updated_at) }}</td><td class="actions"><button :disabled="busy" @click="open(item)">编辑</button><button class="button-danger" :disabled="busy" @click="deleting = item">删除</button></td></tr>
-            <tr v-if="!items.length"><td colspan="6">{{ busy ? '加载中…' : '暂无应用，点击“新增应用”登记业务信息。' }}</td></tr>
+            <tr v-if="!items.length"><td colspan="6">{{ busy ? '加载中…' : '还没有登记应用' }}</td></tr>
           </tbody>
         </table>
       </div><div class="pagination"><button :disabled="busy || page <= 1" @click="page--; load()">上一页</button><span>第 {{ page }} 页 · {{ total }} 条</span><button :disabled="busy || page * 20 >= total" @click="page++; load()">下一页</button></div>
@@ -59,4 +57,5 @@ onBeforeUnmount(() => { ++epoch })
     <div v-if="deleting" class="modal-backdrop"><section class="registry-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-application-title"><h2 id="delete-application-title">删除应用信息</h2><p>确认删除「{{ deleting.name }}」及其登记关系？</p><p v-if="error" role="alert">{{ error }}</p><button class="button-danger" :disabled="busy" @click="remove">确认删除</button><button :disabled="busy" @click="deleting = undefined">取消</button></section></div>
   </section>
 </template>
-<style scoped>.table-scroll{overflow:auto}.application-relations{list-style:none;padding:0;margin:0}.application-relations li+li{margin-top:10px}.information-applications .page-header p{font-size:13px;color:#64748b}.application-relations li{overflow-wrap:anywhere}</style>
+<style scoped>.table-scroll{overflow:auto}.application-relations{list-style:none;padding:0;margin:0}.application-relations li+li{margin-top:10px}.information-applications .page-header p{font-size:13px;color:#64748b}.application-relations li{overflow-wrap:anywhere}.apps-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}.apps-bar h1{font-size:20px;margin:0 6px 0 0}.apps-bar input{width:260px;max-width:100%}.bar-spacer{flex:1}
+</style>

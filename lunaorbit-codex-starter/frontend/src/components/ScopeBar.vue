@@ -15,7 +15,6 @@ function pickCluster(v:string){emit('update:cluster',v);if(props.namespace&&!pro
       <strong data-scope-counts>扫描 {{ summary.clusters }} 个 K8s 集群 / {{ summary.namespaces }} 个命名空间，其中 {{ summary.withMM2 }} 个含 MM2</strong>
       <span v-if="summary.partial" class="scope-partial">部分统计</span>
       <span class="helper-text">最后采集 {{ time(observedAt) }}</span>
-      <button class="scope-refresh" :disabled="busy" data-scope-refresh @click="emit('refresh')">{{ busy?'采集中…':'重新采集全部范围' }}</button>
     </div>
     <div class="scope-line">
       <label>K8s 集群 <select data-scope-cluster :value="cluster" @change="pickCluster(($event.target as HTMLSelectElement).value)"><option value="">全部</option><option v-for="c in clusters" :key="c" :value="c">{{ c }}</option></select></label>
@@ -26,7 +25,6 @@ function pickCluster(v:string){emit('update:cluster',v);if(props.namespace&&!pro
     <p v-for="c in fresh" :key="c" data-scope-new class="scope-note scope-new">发现新增集群 <strong>{{ c }}</strong>，已加入扫描范围，等待首次采集。<button aria-label="关闭提示" @click="emit('dismiss',c)">关闭</button></p>
     <p v-for="f in summary.failures" :key="f.scopeId" :data-scope-failure="f.scopeId" class="scope-note scope-fail">范围采集不完整：<strong>{{ f.cluster }}</strong> {{ f.reason }}。{{ f.hasHistory?`最后成功采集 ${time(f.lastSuccess)}，保留历史配置图，数据已过期，不代表没有关系。`:'尚无可用快照。' }}<button :disabled="busy" @click="emit('retry',f.scopeId)">重试此范围</button></p>
     <template v-if="includeRemoved"><p v-for="r in summary.removed" :key="r.scopeId" :data-scope-removed="r.scopeId" class="scope-note scope-removed"><strong>{{ r.cluster }}</strong> 已移除 · 最后采集 {{ time(r.lastSuccess) }}（历史快照与绑定保留；同名重建无法区分是否为同一集群）</p></template>
-    <p class="scope-note">未识别到 MM2 不等于没有 MM2；自动识别可能遗漏，疑似资源见“待确认”。</p>
     <details v-if="summary.suspected.length" data-suspected class="scope-suspected"><summary>待确认（{{ summary.suspected.length }}）· 不进入主图</summary><ul><li v-for="w in summary.suspected" :key="w.workload_uid" :title="w.signals.join('；')"><span class="suspect-badge">疑似</span> {{ w.k8s_cluster }} / {{ w.namespace }} / {{ w.name }} <span class="helper-text">依据：{{ w.signals.join('；') }}</span></li></ul></details>
   </section>
 </template>

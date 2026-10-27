@@ -140,7 +140,7 @@ describe('Topic 链路 page',()=>{
   const {wrapper}=await page()
   const opts=()=>wrapper.findAll('#lineage-topics option').map(o=>`${o.attributes('value')}|${o.attributes('label')}`)
   expect(opts()).toEqual(['orders|同步配置覆盖 1 个集群'])
-  expect(wrapper.get('[data-candidate-note]').text()).toContain('配置口径，不代表消息已到达')
+  expect(wrapper.find('[data-candidate-note]').exists()).toBe(false)
   const before=JSON.stringify(view(wrapper))
   await wrapper.get('[data-show-all-topics]').setValue(true)
   expect(opts()).toEqual(['heartbeats|MM2 内部','orders|同步配置覆盖 1 个集群','payments|未被规则选中','x.replica|被规则排除'])

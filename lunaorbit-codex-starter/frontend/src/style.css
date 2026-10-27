@@ -188,3 +188,9 @@ details[open] > summary { margin-bottom: 12px; }
   .skip-link { left: 15px; }
 }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* UX-v3: information platform pages own their single-row toolbar; no global topbar/footer on desktop. */
+.compact-shell .admin-footer { display: none; }
+.compact-shell .admin-content { padding: 16px 20px 16px; }
+@media (min-width: 861px) { .compact-shell .admin-topbar { display: none; } }
+@media (max-width: 860px) { .compact-shell .admin-topbar { height: 48px; min-height: 48px; } .compact-shell .admin-content { padding: 10px 10px; } }

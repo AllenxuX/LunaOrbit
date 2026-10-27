@@ -42,7 +42,7 @@ it('prioritizes cluster names and business details while keeping Kafka IDs out o
  w.unmount()
 })
 it('offers discovery when no snapshot exists and loads only after job completion',async()=>{
- const w=setup(true);await flushPromises();expect(w.text()).toContain('尚无发现快照')
+ const w=setup(true);await flushPromises();expect(w.get('[data-topology-empty]').text()).toContain('还没有同步关系')
  await w.get('[data-collect]').trigger('click');await w.get('[data-collect-confirm]').trigger('click');await flushPromises();expect(w.text()).toContain('mars');w.unmount()
 })
 it('keeps unsaved layout on conflict and does not auto overwrite',async()=>{
@@ -58,7 +58,7 @@ it('preserves dirty state when coordinates change during a pending save',async()
  // A second drag must differ from the coordinates captured by the save.
  w.findComponent({name:'TopologyCanvas'}).vm.$emit('move','work',{x:400,y:500})
  finish(new Response(JSON.stringify({revision:1})));await flushPromises()
- expect(w.text()).toContain('有未保存改动');w.unmount()
+ expect(w.find('[data-unsaved]').exists()).toBe(true);w.unmount()
 })
 
 
@@ -69,7 +69,7 @@ it('automatically discovers the first missing lab snapshot',async()=>{
  const w=setup(true);await flushPromises()
  expect(vi.mocked(fetch).mock.calls.some(c=>String(c[0]).endsWith('/runs')&&c[1]?.method==='POST')).toBe(true)
  expect(w.find('[data-link="link"]').exists()).toBe(true)
- expect(w.text()).toContain('实验环境');w.unmount()
+ w.unmount()
 })
 it('requires a visible selection and explicit confirmation before saving a mapping',async()=>{
  const w=setup();await flushPromises();await w.get('[data-link="link"]').trigger('click')
@@ -107,15 +107,11 @@ it('gives the initial canvas full width and opens the details column only after 
  w.unmount()
 })
 
-it('defaults to relationship view and switches deployment without losing layout drafts',async()=>{
- const w=setup(false,false,'',{},'relations');await flushPromises()
+it('defaults to relationship view without view tabs and keeps layout drafts',async()=>{
+ const w=setup(false,false,'',{},'');await flushPromises()
  const canvas=w.findComponent({name:'TopologyCanvas'})
- expect(canvas.props('mode')).toBe('pairs')
+ expect(canvas.props('mode')).toBe('pairs');expect(w.find('[data-mode]').exists()).toBe(false)
  await w.get('[data-move]').trigger('click')
- await w.get('[data-mode="tasks"]').trigger('click')
- expect(w.find('[data-canvas]').exists()).toBe(false)
- expect(w.find('[data-task-row]').exists()).toBe(true)
- await w.get('[data-mode="relations"]').trigger('click')
  expect(canvas.props('positions').source).toEqual({x:200,y:300})
  w.unmount()
 })
@@ -163,9 +159,6 @@ it('retains legacy coordinates while saving relationship-only changes',async()=>
  const w=setup(false,false,'',{'source':{x:900,y:900},'relations:source':{x:100,y:120}},'relations');await flushPromises()
  const canvas=w.findComponent({name:'TopologyCanvas'})
  expect(canvas.props('positions').source).toEqual({x:100,y:120})
- await w.get('[data-mode="tasks"]').trigger('click')
- expect(w.find('[data-canvas]').exists()).toBe(false)
- await w.get('[data-mode="relations"]').trigger('click')
  await w.get('[data-move]').trigger('click');await w.get('[data-save]').trigger('click');await flushPromises()
  const call=vi.mocked(fetch).mock.calls.find(c=>c[1]?.method==='PUT'),body=JSON.parse(call?.[1]?.body as string)
  expect(body.positions.source).toEqual({x:900,y:900})
@@ -183,34 +176,29 @@ it('keeps selected details below the canvas and supports searching a cluster',as
  w.unmount()
 })
 
-it('opens MM2 topology by default and preserves separate relationship and task views',async()=>{
+it('drills relation → instance → task and back (v3)',async()=>{
  const w=setup(false,false,'',{},'');await flushPromises()
- expect(w.find('[data-mm2-instance]').exists()).toBe(false)
- expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
- expect(w.find('[data-canvas]').exists()).toBe(true)
- expect(w.get('[data-mode="mm2"]').attributes('aria-pressed')).toBe('true')
- w.findComponent({name:'TopologyCanvas'}).vm.$emit('select','link');await flushPromises()
- expect(w.get('[data-link-summary]').text()).toContain('events.*')
- await w.get('[data-mode="relations"]').trigger('click')
- expect(w.find('[data-canvas]').exists()).toBe(true)
- await w.get('[data-mode="tasks"]').trigger('click')
- expect(w.find('[data-canvas]').exists()).toBe(false)
- expect(w.find('[data-task-row]').exists()).toBe(true)
+ w.findComponent({name:'TopologyCanvas'}).vm.$emit('selectLinks',['link']);await flushPromises()
+ await w.get('[data-relation-instance]').trigger('click')
+ expect(w.get('[data-relation-name]').text()).toBe('synthetic-deployment')
+ await w.get('[data-relation-task]').trigger('click');await flushPromises()
+ expect(w.get('[data-link-summary]').text()).toContain('events.*');expect(w.find('[data-relation-panel]').exists()).toBe(false)
+ await w.get('[data-task-back]').trigger('click');await flushPromises()
+ expect(w.find('[data-relation-panel]').exists()).toBe(true);expect(w.find('[data-relation-back]').exists()).toBe(true)
+ await w.get('[data-relation-back]').trigger('click');expect(w.find('[data-relation-instance]').exists()).toBe(true)
  w.unmount()
 })
-
-it('keeps instance rows available separately from the default continuous topology',async()=>{
- const w=setup(false,false,'',{},'');await flushPromises()
- await w.get('[data-mode="instances"]').trigger('click')
+it('keeps instance rows via deep link and path tracing behind 更多',async()=>{
+ const w=setup(false,false,'',{},'instances');await flushPromises()
  expect(w.find('[data-mm2-instance]').exists()).toBe(true)
- expect(w.find('[data-canvas]').exists()).toBe(false)
- await w.get('[data-mode="mm2"]').trigger('click')
- expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
- expect(w.find('[data-path-source]').exists()).toBe(true)
- expect(w.find('[data-path-target]').exists()).toBe(true)
  w.unmount()
+ const r=setup(false,false,'',{},'');await flushPromises()
+ expect(r.find('[data-path-source]').exists()).toBe(false)
+ await r.get('[data-toggle-path]').trigger('click');await flushPromises()
+ expect(r.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
+ expect(r.find('[data-path-source]').exists()).toBe(true);expect(r.find('[data-path-target]').exists()).toBe(true)
+ r.unmount()
 })
-
 it('saves the actual arranged positions returned by the canvas and preserves other views',async()=>{
  const w=setup(false,false,'',{'chain:source':{x:9,y:9}},'relations');await flushPromises()
  const button=w.findAll('button').find(b=>b.text()==='整理布局')!;await button.trigger('click');await flushPromises()
@@ -219,11 +207,10 @@ it('saves the actual arranged positions returned by the canvas and preserves oth
  expect(body.positions['relations:source']).toEqual({x:24,y:24});expect(body.positions['relations:target']).toEqual({x:400,y:24});expect(body.positions['chain:source']).toEqual({x:9,y:9});w.unmount()
 })
 
-it('MM2 topology counts enabled links, toggles disabled links and shows full lineage counts',async()=>{
- const w=setup(false,false,'',{},'');await flushPromises()
- expect(w.get('.graph-topline').text()).toContain('0 个已登记集群 · 2 个自动发现端点 · 1 条 MM2 任务 · 就绪 1/1')
+it('MM2 topology corner counts, disabled toggle and full lineage counts',async()=>{
+ const w=setup(false,false,'',{},'mm2');await flushPromises()
+ expect(w.get('[data-graph-corner]').text()).toBe('0 个已登记集群 · 2 个自动发现端点 · 1 条 MM2 任务')
  expect(w.text()).toContain('显示禁用任务（0）')
- expect(w.get('.graph-topline').text()).not.toMatch(/×|同步关系/)
  const canvas=w.findComponent({name:'TopologyCanvas'})
  expect(canvas.props('showDisabled')).toBe(false)
  await w.get('[data-show-disabled]').setValue(true)
@@ -232,43 +219,40 @@ it('MM2 topology counts enabled links, toggles disabled links and shows full lin
  expect(w.get('[data-lineage-counts]').text()).toBe('全部上游 1 个集群 · 全部下游 0 个集群')
  w.unmount()
 })
-
 it('passes registered environment and room per cluster for scale grouping',async()=>{
  const w=setup(false,true,'',{},'');await flushPromises()
  expect(w.findComponent({name:'TopologyCanvas'}).props('groupMeta')).toEqual({source:{environment:'test',room:'lab'}})
  w.unmount()
 })
 
-it('both graph tabs use the layered layout: relations draws cluster pairs, MM2 draws links',async()=>{
+it('relations graph shows a unit-labelled corner count and no resident legend or explanation',async()=>{
  const w=setup(false,false,'',{},'relations');await flushPromises()
  expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('pairs')
- const top=w.get('.graph-topline').text()
- expect(top).toContain('0 个已登记集群 · 2 个自动发现端点 · 1 对同步关系（启用）');expect(top).toContain('集群视角')
- expect(top).not.toMatch(/链路|任务/)
+ expect(w.get('[data-graph-corner]').text()).toBe('0 个已登记集群 · 2 个自动发现端点 · 1 对关系')
+ expect(w.find('[data-legend]').exists()).toBe(false);expect(w.find('[data-topology-counts]').exists()).toBe(false)
  expect(w.find('.task-panel').exists()).toBe(false);expect(w.find('[data-path-source]').exists()).toBe(false)
- await w.get('[data-mode="mm2"]').trigger('click')
- expect(w.findComponent({name:'TopologyCanvas'}).props('mode')).toBe('clusters')
+ await w.get('[data-legend-button]').trigger('click');expect(w.get('[data-legend]').text()).toContain('配置箭头不表示消息已到达')
  w.unmount()
 })
-
 it('relations page: clicking a relation opens a side panel listing member MM2 with separated facts',async()=>{
  const w=setup(false,false,'',{},'relations');await flushPromises()
  w.findComponent({name:'TopologyCanvas'}).vm.$emit('selectLinks',['link']);await flushPromises()
  const panel=w.get('[data-relation-panel]')
  expect(panel.get('[data-relation-title]').text()).toBe('mars → moon-prod')
  expect(panel.get('[data-relation-counts]').text()).toBe('启用 MM2 1 · 禁用 0')
- const row=panel.get('[data-relation-link]')
+ expect(panel.get('[data-relation-instance]').text()).toContain('synthetic-deployment');await panel.get('[data-relation-instance]').trigger('click')
+ const row=w.get('[data-relation-link]')
  expect(row.get('[data-relation-name]').text()).toBe('synthetic-deployment')
  expect(row.get('[data-relation-evidence]').text()).toBe('证据类型：配置关系（未验证）')
  expect(row.get('[data-relation-enablement]').text()).toBe('启用')
  expect(row.get('[data-relation-status]').text()).toBe('状态未知')
  expect(row.get('[data-relation-freshness]').text()).toBe('当前')
- expect(panel.text()).not.toContain('已验证')
+ expect(w.get('[data-relation-panel]').text()).not.toContain('已验证')
  expect(w.find('[aria-label="链路详情"]').exists()).toBe(false)
  w.unmount()
 })
 it('MM2 page: link detail starts with evidence type and keeps enablement, status and freshness separate',async()=>{
- const w=setup(false,false,'',{},'');await flushPromises()
+ const w=setup(false,false,'',{},'mm2');await flushPromises()
  w.findComponent({name:'TopologyCanvas'}).vm.$emit('select','link');await flushPromises()
  const facts=w.findAll('[data-link-facts] dt').map(d=>d.text())
  expect(facts[0]).toBe('证据类型')
@@ -281,52 +265,48 @@ it('MM2 page: link detail starts with evidence type and keeps enablement, status
  w.unmount()
 })
 it('MM2 page task panel counts only enabled MM2 tasks unless disabled are shown',async()=>{
- const w=setup(false,false,'',{},'');await flushPromises()
+ const w=setup(false,false,'',{},'mm2');await flushPromises()
  expect(w.get('.task-panel').text()).toContain('1 条 MM2 任务')
  expect(w.get('.task-panel').text()).not.toContain('个任务')
  w.unmount()
 })
 
-it('更多 menu closes on outside click, Esc and after an action (LUNA-33B)',async()=>{
+it('toolbar popovers close on outside click, Esc and after an action (LUNA-33B)',async()=>{
  const w=setup();await flushPromises()
- const more=()=>w.get('.topology-more').element as HTMLDetailsElement
+ const more=()=>w.get('[data-pop="layout"]').element as HTMLDetailsElement
  more().open=true;globalThis.document.body.dispatchEvent(new globalThis.MouseEvent('pointerdown',{bubbles:true}));await flushPromises();expect(more().open).toBe(false)
  more().open=true;more().querySelector('summary')!.dispatchEvent(new globalThis.MouseEvent('pointerdown',{bubbles:true}));expect(more().open).toBe(true)
  globalThis.document.dispatchEvent(new globalThis.KeyboardEvent('keydown',{key:'Escape'}));await flushPromises();expect(more().open).toBe(false)
  more().open=true;await w.get('[data-reload-view]').trigger('click');expect(more().open).toBe(false)
  w.unmount()
 })
-it('toolbar holding 更多 does not clip its menu',async()=>{
+it('toolbar holding popovers does not clip its menus',async()=>{
  const src=(await import('./Topology.vue?raw')).default
- expect(src).toMatch(/\.topology-toolbar\.panel\{[^}]*overflow:visible/)
+ expect(src).toMatch(/\.pop-menu\{position:absolute/);expect(src).not.toMatch(/\.topology-bar\{[^}]*overflow:hidden/)
 })
-
-const menuItems=(w:ReturnType<typeof setup>)=>w.findAll('.more-menu > *').map(e=>e.text().replace(/\s+/g,' ').trim().split(' ')[0]!)
-const tab=async(w:ReturnType<typeof setup>,m:string)=>{await w.get(`[data-mode="${m}"]`).trigger('click');await flushPromises()}
-it('LUNA-34 menu items and order per tab, mock and non-mock',async()=>{
- const w=setup(false,false,'',{},'mm2');await flushPromises()
- expect(menuItems(w)).toEqual(['显示禁用任务（0）','整理布局','恢复默认布局','保存个人视图','重新加载视图','视图版本','Mock'])
- await tab(w,'relations');expect(menuItems(w)).toEqual(['显示禁用关系（0）','整理布局','恢复默认布局','保存个人视图','重新加载视图','视图版本','Mock'])
- for(const m of ['instances','tasks']){await tab(w,m);expect(menuItems(w)).toEqual(['显示禁用任务（0）','重新加载视图','Mock'])}
+const menuItems=(w:ReturnType<typeof setup>,pop:string)=>w.findAll(`[data-pop="${pop}"] .pop-menu > *`).map(e=>e.text().replace(/\s+/g,' ').trim().split(' ')[0]!)
+it('v3 toolbar popover items: layout, more (one collect entry), mock only in mock mode',async()=>{
+ const w=setup(false,false,'',{},'');await flushPromises()
+ expect(menuItems(w,'layout')).toEqual(['整理布局','恢复默认布局','保存个人视图','重新加载视图','仅作用于此浏览器'])
+ expect(menuItems(w,'more')).toEqual(['重读数据','重新采集…','配置路径','图例','Mock'])
+ expect(w.findAll('[data-collect]')).toHaveLength(1)
  w.unmount()
  testRuntime.value.mode='readonly-lab';const r=setup(false,false,'',{},'tasks');await flushPromises()
- expect(menuItems(r)).toEqual(['显示禁用任务（0）','重新加载视图']);r.unmount()
+ expect(r.find('[data-pop="layout"]').exists()).toBe(false);expect(menuItems(r,'more')).toEqual(['重读数据','重新采集…','图例']);r.unmount()
 })
-it('LUNA-34 disabled toggle is shared across tabs and does not close the menu; mock select does not close either',async()=>{
- const w=setup(false,false,'',{},'mm2');await flushPromises()
- const more=()=>w.get('.topology-more').element as HTMLDetailsElement
- more().open=true;await w.get('[data-show-disabled]').setValue(true);expect(more().open).toBe(true)
- await w.get('.more-menu select').setValue('partial_failure');expect(more().open).toBe(true)
- for(const m of ['relations','instances','tasks','mm2']){await tab(w,m);expect((w.get('[data-show-disabled]').element as HTMLInputElement).checked).toBe(true)}
+it('disabled toggle and mock select do not close their popover',async()=>{
+ const w=setup(false,false,'',{},'');await flushPromises()
+ const scope=()=>w.get('[data-pop="scope"]').element as HTMLDetailsElement
+ scope().open=true;await w.get('[data-show-disabled]').setValue(true);expect(scope().open).toBe(true)
+ const more=()=>w.get('[data-pop="more"]').element as HTMLDetailsElement
+ more().open=true;await w.get('[data-pop="more"] select').setValue('partial_failure');expect(more().open).toBe(true)
  w.unmount()
 })
-it('LUNA-34 unsaved layout notice with inline save, kept across tab switches',async()=>{
+it('LUNA-34 unsaved layout notice with inline save',async()=>{
  const w=setup(false,false,'',{},'mm2');await flushPromises()
  expect(w.find('[data-unsaved]').exists()).toBe(false)
  await w.get('[data-move]').trigger('click')
- expect(w.get('[data-unsaved]').text()).toContain('有未保存的布局改动');expect(w.find('.dirty-dot').exists()).toBe(true)
- await tab(w,'tasks');expect(w.find('[data-unsaved]').exists()).toBe(false)
- await tab(w,'mm2');expect(w.get('[data-unsaved]').text()).toContain('有未保存的布局改动')
+ expect(w.get('[data-unsaved]').text()).toContain('未保存');expect(w.find('.dirty-dot').exists()).toBe(true)
  await w.get('[data-inline-save]').trigger('click');await flushPromises()
  expect(w.find('[data-unsaved]').exists()).toBe(false);expect(w.find('.dirty-dot').exists()).toBe(false)
  w.unmount()

@@ -24,8 +24,8 @@ describe('inspection summary', () => {
     expect(r.staleScopes).toEqual(['b'])
   })
   it('labels scope namespaces without guessing', () => {
-    expect(scopeLabel({ id: 's', synthetic: false })).toBe('s / Namespace 未读取')
-    expect(scopeLabel({ id: 's', synthetic: false, k8s_cluster: 'k', namespace_mode: 'all_accessible' })).toBe('k · s / 全部可访问 Namespace')
+    expect(scopeLabel({ id: 's', synthetic: false })).toBe('当前发现范围 / Namespace 未读取')
+    expect(scopeLabel({ id: 's', synthetic: false, k8s_cluster: 'k', namespace_mode: 'all_accessible' })).toBe('k / 全部可访问 Namespace')
   })
 })
 

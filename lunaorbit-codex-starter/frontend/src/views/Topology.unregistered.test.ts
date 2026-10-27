@@ -31,13 +31,12 @@ const canvas=(w:ReturnType<typeof mount>)=>w.findComponent({name:'TopologyCanvas
 const targetCard=(w:ReturnType<typeof mount>)=>w.findAll('.link-options .mapping-card')[1]!
 
 describe('unregistered MM2 endpoints on the topology page',()=>{
- it('counts registered clusters and unregistered endpoints separately and keeps a non-dismissable banner',async()=>{
+ it('counts registered clusters and unregistered endpoints separately; endpoint note lives in the legend',async()=>{
   const {w}=setup(registeredLab(['k9']),labRegistrations(['k9']));await settle()
-  expect(w.text()).toContain('8 个已登记集群 · 1 个自动发现端点 · 10 对同步关系')
-  const banner=w.get('[data-unregistered-banner]')
-  expect(banner.text()).toContain('1 条链路的对端 k9 为自动发现端点，尚未合并登记信息；点击节点查看访问状态')
-  expect(banner.find('a').exists()).toBe(false)
-  expect(banner.text()).not.toMatch(/关闭|×/)
+  expect(w.get('[data-graph-corner]').text()).toBe('8 个已登记集群 · 1 个自动发现端点 · 10 对关系')
+  expect(w.find('[data-legend]').exists()).toBe(false)
+  await w.get('[data-legend-button]').trigger('click')
+  expect(w.get('[data-legend]').text()).toContain('1 条链路的对端 k9 为自动发现端点，尚未合并登记信息；点击节点查看访问状态')
   expect(canvas(w).props('endpointMarks')).toEqual({'alias:k9':'自动发现'})
   w.unmount()
  })
@@ -48,8 +47,7 @@ describe('unregistered MM2 endpoints on the topology page',()=>{
  })
  it('with every cluster registered the page is unchanged: no banner, no badges, old count',async()=>{
   const {w}=setup(registeredLab(),labRegistrations());await settle()
-  expect(w.text()).toContain('9 个集群 · 10 对同步关系');expect(w.text()).not.toContain('已登记集群')
-  expect(w.find('[data-unregistered-banner]').exists()).toBe(false);expect(canvas(w).props('endpointMarks')).toEqual({})
+  expect(w.get('[data-graph-corner]').text()).toBe('9 个集群 · 10 对关系');expect(w.text()).not.toContain('已登记集群');expect(canvas(w).props('endpointMarks')).toEqual({})
   w.unmount()
  })
  it('clicking an unregistered node explains the match result, the reason and three next steps',async()=>{
